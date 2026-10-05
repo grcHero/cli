@@ -33,3 +33,6 @@ grchero = "grchero_cli.main:main"
 
 [tool.setuptools.packages.find]
 include = ["grchero_cli*"]
+
+[tool.setuptools.package-data]
+grchero_cli = ["py.typed"]
