@@ -1,0 +1,270 @@
+"""Command interface for local reviews. Report files contain observations, not source."""
+
+import argparse
+import json
+import platform
+import sys
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from . import __version__
+from .scanner import applicable_rule_ids, inspect_files
+from .scope import CliError, collect, load_configuration, read_text
+
+RULES = [
+    (
+        "secret-in-env",
+        "high",
+        "Non-placeholder credential-like assignments in .env, .env.local, .env.production",
+    ),
+    ("production-debug", "medium", "DEBUG enabled in .env.production or .env.prod"),
+    ("workflow-write-all", "medium", "Broad write-all permissions in GitHub Actions YAML"),
+    (
+        "workflow-pull-request-target",
+        "medium",
+        "Privileged pull_request_target event in GitHub Actions YAML",
+    ),
+    ("docker-user-review", "low", "Dockerfile without an explicit USER directive"),
+    ("literal-credential", "high", "Credential-like literals in selected source files"),
+    ("dynamic-evaluation", "medium", "Dynamic eval call in selected source files"),
+]
+SEVERITY = {"none": 4, "high": 3, "medium": 2, "low": 1}
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="grchero",
+        description="Review selected configuration locally. No upload, telemetry or AI required.",
+    )
+    result.add_argument("--version", action="version", version=f"grchero {__version__}")
+    commands = result.add_subparsers(dest="command", required=True)
+    scan = commands.add_parser("scan", help="Run a bounded local configuration review")
+    scan.add_argument(
+        "path", nargs="?", default=".", help="Project directory (default: current directory)"
+    )
+    scan.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Replace configured includes; repeat to add patterns",
+    )
+    scan.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Add an exclusion; exclusions always win",
+    )
+    scan.add_argument(
+        "--dry-run", action="store_true", help="Show selected file paths without running rules"
+    )
+    scan.add_argument("--format", choices=["text", "json"], default="text")
+    scan.add_argument(
+        "--output",
+        metavar="FILE",
+        help="Save a JSON report to a new file; existing files are never overwritten",
+    )
+    scan.add_argument(
+        "--fail-on",
+        choices=list(SEVERITY),
+        default="none",
+        help="CI threshold; exit 1 for findings at or above this severity",
+    )
+    commands.add_parser("rules", help="List supported checks and their scope")
+    commands.add_parser("doctor", help="Check the local runtime and available capabilities")
+    report = commands.add_parser("report", help="Read an existing local JSON report")
+    report.add_argument("path", help="Path to a saved report")
+    report.add_argument("--format", choices=["text", "json"], default="text")
+    return result
+
+
+def display(report: dict[str, Any]) -> str:
+    files = report["files"]
+    findings = report["findings"]
+    lines = [
+        f"grcHero CLI {__version__} · Local configuration review",
+        "",
+        f"{len(files)} files reviewed · {len(findings)} observations",
+        "Scope: selected configuration only. "
+        "A clean result does not establish security or compliance.",
+    ]
+    applicable = report.get("applicable_rules")
+    if isinstance(applicable, list):
+        lines.append("Checks applied: " + (", ".join(applicable) if applicable else "none"))
+    if not findings:
+        lines.append("No observations from the enabled rules.")
+    for finding in findings:
+        lines.extend(
+            [
+                "",
+                f"[{finding['severity'].upper()}] {finding['title']}",
+                f"  {finding['path']}:{finding['line']} · {finding['rule_id']}",
+                f"  {finding['observation']}",
+                f"  Next: {finding['recommendation']}",
+            ]
+        )
+    lines.extend(
+        ["", "Files stay on this machine. Reports omit source text and detected credential values."]
+    )
+    return "\n".join(lines)
+
+
+def read_report(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.stat().st_size > 2_097_152:
+        raise CliError("Report must be an existing JSON file smaller than 2 MiB.")
+    try:
+        report = json.loads(read_text(path, 2_097_152))
+        if (
+            not isinstance(report, dict)
+            or type(report.get("schema_version")) is not int
+            or report.get("schema_version") != 1
+        ):
+            raise ValueError
+        if not isinstance(report.get("files"), list) or not isinstance(
+            report.get("findings"), list
+        ):
+            raise ValueError
+        applicable = report.get("applicable_rules")
+        if applicable is not None and (
+            not isinstance(applicable, list)
+            or len(applicable) > len(RULES)
+            or len(set(applicable)) != len(applicable)
+            or any(
+                not isinstance(rule, str) or rule not in {item[0] for item in RULES}
+                for rule in applicable
+            )
+        ):
+            raise ValueError
+        if (
+            len(report["files"]) > 40
+            or len(report["findings"]) > 100
+            or not all(
+                isinstance(file, str)
+                and file
+                and len(file) <= 300
+                and not any(ord(character) < 32 for character in file)
+                for file in report["files"]
+            )
+        ):
+            raise ValueError
+        for finding in report["findings"]:
+            if not isinstance(finding, dict) or not all(
+                isinstance(finding.get(key), str)
+                for key in ["severity", "title", "path", "rule_id", "observation", "recommendation"]
+            ):
+                raise ValueError
+            if (
+                type(finding.get("line")) is not int
+                or finding["line"] < 1
+                or finding["severity"]
+                not in {
+                    "high",
+                    "medium",
+                    "low",
+                }
+            ):
+                raise ValueError
+            if any(
+                ord(character) < 32
+                for key in ["severity", "title", "path", "rule_id", "observation", "recommendation"]
+                for character in finding[key]
+            ):
+                raise ValueError
+    except (OSError, UnicodeError, ValueError, TypeError) as cause:
+        raise CliError(
+            "Invalid report. Use a schema_version 1 report created by grchero scan."
+        ) from cause
+    return report
+
+
+def run(args: argparse.Namespace) -> int:
+    if args.command == "rules":
+        print("grcHero local checks\n")
+        for rule, severity, description in RULES:
+            print(f"{rule} [{severity}]\n  {description}")
+        return 0
+    if args.command == "doctor":
+        print(
+            f"grcHero CLI {__version__}\nPython {platform.python_version()}\n"
+            "Local scanner: available\nNetwork access: disabled\n"
+            "Workspace login/upload: not yet available\nDocumentation: /docs/cli"
+        )
+        return 0
+    if args.command == "report":
+        report = read_report(Path(args.path))
+    else:
+        if args.dry_run and (args.output or args.fail_on != "none"):
+            raise CliError(
+                "--dry-run previews scope only. Remove --output and --fail-on when previewing."
+            )
+        root = Path(args.path).resolve()
+        if not root.is_dir():
+            raise CliError("Project directory does not exist. Pass a directory to grchero scan.")
+        include, exclude = load_configuration(root)
+        files = collect(root, args.include or include, exclude + args.exclude)
+        if not files:
+            raise CliError(
+                "No files matched. Run from the project root or use --include 'path/to/Dockerfile'."
+            )
+        if args.dry_run:
+            manifest = {
+                "mode": "local-preview",
+                "files": [file.path for file in files],
+                "applicable_rules": list(applicable_rule_ids([file.path for file in files])),
+                "upload": False,
+            }
+            print(
+                json.dumps(manifest, indent=2)
+                if args.format == "json"
+                else "Local review preview (nothing is uploaded)\n"
+                + "\n".join(f"  {file.path}" for file in files)
+            )
+            return 0
+        findings = inspect_files(files)
+        applicable = list(applicable_rule_ids([file.path for file in files]))
+        report = {
+            "schema_version": 1,
+            "cli_version": __version__,
+            "rules_version": "2026.1",
+            "mode": "local",
+            "created_at": datetime.now(UTC).isoformat(),
+            "files": [file.path for file in files],
+            "applicable_rules": applicable,
+            "findings": [asdict(finding) for finding in findings],
+            "limitations": "Selected configuration heuristics only; "
+            "not a full security or compliance assessment.",
+        }
+        if args.output:
+            try:
+                with Path(args.output).open("x", encoding="utf-8") as stream:
+                    stream.write(json.dumps(report, indent=2) + "\n")
+            except OSError as cause:
+                raise CliError(
+                    "Cannot create report. Choose a writable path that does not already exist."
+                ) from cause
+    print(json.dumps(report, indent=2) if args.format == "json" else display(report))
+    if args.command == "scan" and any(
+        SEVERITY[finding["severity"]] >= SEVERITY[args.fail_on] for finding in report["findings"]
+    ):
+        return 1
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        return run(args)
+    except (CliError, OSError) as cause:
+        message = (
+            str(cause)
+            if isinstance(cause, CliError)
+            else "Cannot read the selected project. Check permissions and try again."
+        )
+        print(f"grchero: {message}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("grchero: Review cancelled.", file=sys.stderr)
+        return 130
