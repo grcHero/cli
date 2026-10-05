@@ -1,8 +1,8 @@
 # grcHero CLI
 
-Review selected project files locally with deterministic security checks. This is the public scanner for grcHero. Its versioned reports are intended for import into the grcHero workspace as the connected workflow develops. The current CLI never uploads files, reports, or telemetry.
+Review selected project files locally with deterministic security checks. A grcHero account and workspace authorization are required before each scan. Source files remain local; the authorization request contains no source, paths, findings or file hashes.
 
-Python 3.11 or newer is required. Local reviews need no account or runtime dependencies.
+Python 3.11 or newer is required. The scanner itself has no third-party runtime dependencies.
 
 ## Install from source
 
@@ -20,12 +20,27 @@ On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`. The package h
 ## First review
 
 ```bash
+grchero login \
+  --api-url https://app.example.com \
+  --issuer https://auth.example.com \
+  --client-id '<native device client ID>' \
+  --audience '<grcHero project ID>'
 grchero scan /path/to/project --dry-run
 grchero scan /path/to/project
 grchero scan /path/to/project --output review.json --fail-on medium
 grchero report review.json
 grchero rules
 ```
+
+Login uses OAuth 2.0 Device Authorization in the browser. The access token is
+written to the user-only CLI configuration file. Run `grchero logout` to remove
+it, or `grchero whoami` to see the selected workspace. Expired sessions require a
+new login. Production distributions will provide the trusted endpoint and client
+configuration; explicit flags keep development and self-hosted installations clear.
+
+CI may provide `GRCHERO_ACCESS_TOKEN`, `GRCHERO_ORGANIZATION_ID`,
+`GRCHERO_API_URL`, and `GRCHERO_ISSUER_URL` through its secret store. Use a
+dedicated least-privilege grcHero user, mask the token, and never commit it.
 
 The default scope includes Dockerfiles and GitHub Actions workflows. Environment and source files require an explicit `--include`, for example `--include 'src/auth.ts'`. A `.grchero.json` at the project root can hold repeatable `include` and `exclude` arrays. Patterns use Python `fnmatch`, not gitignore semantics; exclusions always win.
 
@@ -41,7 +56,7 @@ There are seven narrow text heuristics: credential-like assignments in environme
 
 ## Workspace compatibility
 
-The report's `schema_version` and `rules_version` are explicit so the grcHero API can validate observations without receiving source code. Workspace authentication, report upload, and remote scan commands are not available in this release; the CLI does not imply that it has synced anything to your workspace. See [the report contract](docs/REPORT_FORMAT.md).
+The report's `schema_version` and `rules_version` are explicit so the grcHero API can validate observations without receiving source code. Each scan obtains a short server authorization for the selected workspace. Report upload remains a separate, explicit action; this release uses browser import and never implies that a local report was synced. See [the report contract](docs/REPORT_FORMAT.md).
 
 ## Development
 

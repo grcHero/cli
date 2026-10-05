@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import platform
 import sys
 from dataclasses import asdict
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .auth import authorize_scan, load_credentials, login, logout
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
 
@@ -36,7 +38,7 @@ SEVERITY = {"none": 4, "high": 3, "medium": 2, "low": 1}
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="grchero",
-        description="Review selected configuration locally. No upload, telemetry or AI required.",
+        description="Run authenticated, local security reviews with grcHero.",
     )
     result.add_argument("--version", action="version", version=f"grchero {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
@@ -75,6 +77,14 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("rules", help="List supported checks and their scope")
     commands.add_parser("doctor", help="Check the local runtime and available capabilities")
+    sign_in = commands.add_parser("login", help="Sign in through the browser")
+    sign_in.add_argument("--api-url", default=os.getenv("GRCHERO_API_URL", ""))
+    sign_in.add_argument("--issuer", default=os.getenv("GRCHERO_ISSUER_URL", ""))
+    sign_in.add_argument("--client-id", default=os.getenv("GRCHERO_CLIENT_ID", ""))
+    sign_in.add_argument("--audience", default=os.getenv("GRCHERO_AUDIENCE", ""))
+    sign_in.add_argument("--organization", default="", help="Workspace ID or slug")
+    commands.add_parser("logout", help="Remove the saved CLI session")
+    commands.add_parser("whoami", help="Show the active grcHero workspace")
     report = commands.add_parser("report", help="Read an existing local JSON report")
     report.add_argument("path", help="Path to a saved report")
     report.add_argument("--format", choices=["text", "json"], default="text")
@@ -181,6 +191,20 @@ def read_report(path: Path) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.command == "login":
+        credentials = login(
+            args.api_url, args.issuer, args.client_id, args.audience, args.organization
+        )
+        print(f"Signed in to {credentials.organization_name}.")
+        return 0
+    if args.command == "logout":
+        logout()
+        print("Signed out of grcHero CLI.")
+        return 0
+    if args.command == "whoami":
+        credentials = load_credentials()
+        print(f"Workspace: {credentials.organization_name}\nAPI: {credentials.api_url}")
+        return 0
     if args.command == "rules":
         print("grcHero local checks\n")
         for rule, severity, description in RULES:
@@ -189,8 +213,8 @@ def run(args: argparse.Namespace) -> int:
     if args.command == "doctor":
         print(
             f"grcHero CLI {__version__}\nPython {platform.python_version()}\n"
-            "Local scanner: available\nNetwork access: disabled\n"
-            "Workspace login/upload: not yet available\nDocumentation: /docs/cli"
+            "Local scanner: available after grcHero sign-in\n"
+            "Source upload: disabled\nWorkspace reports: JSON import\nDocumentation: /docs/cli"
         )
         return 0
     if args.command == "report":
@@ -209,12 +233,14 @@ def run(args: argparse.Namespace) -> int:
             raise CliError(
                 "No files matched. Run from the project root or use --include 'path/to/Dockerfile'."
             )
+        authorization = authorize_scan(__version__)
         if args.dry_run:
             manifest = {
                 "mode": "local-preview",
                 "files": [file.path for file in files],
                 "applicable_rules": list(applicable_rule_ids([file.path for file in files])),
                 "upload": False,
+                "authorization_id": authorization.get("authorization_id"),
             }
             print(
                 json.dumps(manifest, indent=2)

@@ -1,9 +1,14 @@
 """Exercise the shipped command and its filesystem/report boundaries."""
 
 import json
+import os
 import subprocess
 import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -13,6 +18,61 @@ from grchero_cli.scope import CliError, LocalFile, collect
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def authenticated_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            assert self.path == "/api/v1/cli/scan-authorizations"
+            assert self.headers["Authorization"] == "Bearer test-access-token"
+            assert self.headers["X-Organization-ID"] == "00000000-0000-4000-8000-000000000001"
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length))
+            assert payload["cli_version"] == "0.2.0"
+            UUID(payload["request_id"])
+            body = json.dumps(
+                {
+                    "authorization_id": "00000000-0000-7000-8000-000000000002",
+                    "allowed": True,
+                    "billing_enforced": False,
+                    "remaining_credits": None,
+                    "usage_count": 1,
+                    "created_at": "2026-10-05T00:00:00Z",
+                }
+            ).encode()
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    config = tmp_path / "cli-config"
+    config.mkdir()
+    (config / "credentials.json").write_text(
+        json.dumps(
+            {
+                "api_url": f"http://127.0.0.1:{server.server_port}",
+                "issuer_url": "http://127.0.0.1:8081",
+                "client_id": "cli-test",
+                "audience": "project-test",
+                "access_token": "test-access-token",
+                "expires_at": int(time.time()) + 600,
+                "organization_id": "00000000-0000-4000-8000-000000000001",
+                "organization_name": "Test workspace",
+            }
+        )
+    )
+    monkeypatch.setenv("GRCHERO_CONFIG_DIR", str(config))
+    yield
+    server.shutdown()
+    server.server_close()
+
+
 def invoke(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "grchero_cli", "scan", str(path), *arguments],
@@ -20,6 +80,7 @@ def invoke(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=os.environ.copy(),
     )
 
 
@@ -76,7 +137,9 @@ def test_explicit_secret_scope_threshold_and_saved_report(tmp_path: Path) -> Non
 def test_preview_does_not_run_rules_or_write_reports(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM alpine\n", encoding="utf-8")
     result = invoke(tmp_path, "--dry-run", "--format", "json")
-    assert json.loads(result.stdout) == {
+    preview = json.loads(result.stdout)
+    UUID(preview.pop("authorization_id"))
+    assert preview == {
         "mode": "local-preview",
         "files": ["Dockerfile"],
         "applicable_rules": ["docker-user-review"],
@@ -175,3 +238,19 @@ def test_noisy_workflow_cannot_hide_high_severity_ci_failure(tmp_path: Path) -> 
     assert result.returncode == 1
     assert len(report["findings"]) == 100
     assert report["findings"][0]["severity"] == "high"
+
+
+def test_scan_requires_a_live_grchero_session(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    env = os.environ.copy()
+    env["GRCHERO_CONFIG_DIR"] = str(tmp_path / "missing-config")
+    result = subprocess.run(
+        [sys.executable, "-m", "grchero_cli", "scan", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 2
+    assert "grchero login" in result.stderr

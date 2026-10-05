@@ -1,7 +1,9 @@
 # Contributor instructions
 
-Keep the CLI usable without an account or network access for local scans. Never
+Require a live grcHero account and workspace authorization before every scan,
+including scope previews. Analysis still runs locally: never upload source files,
 execute reviewed source or include detected credentials in terminal/JSON output.
+Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.
 
