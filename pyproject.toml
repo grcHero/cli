@@ -15,8 +15,8 @@ license = "MIT"
 dev = ["pytest>=8,<10", "ruff>=0.15,<1"]
 
 [project.urls]
-Repository = "https://github.com/grcHero/grchero-cli"
-Issues = "https://github.com/grcHero/grchero-cli/issues"
+Repository = "https://github.com/grcHero/cli"
+Issues = "https://github.com/grcHero/cli/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

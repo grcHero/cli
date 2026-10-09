@@ -7,8 +7,8 @@ Python 3.11 or newer is required. The scanner itself has no third-party runtime 
 ## Install from source
 
 ```bash
-git clone https://github.com/grcHero/grchero-cli.git
-cd grchero-cli
+git clone https://github.com/grcHero/cli.git
+cd cli
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
