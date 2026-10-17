@@ -66,7 +66,7 @@ def _request(
     url: str,
     *,
     data: dict[str, str] | None = None,
-    json_body: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
     token: str = "",
     organization_id: str = "",
     method: str | None = None,

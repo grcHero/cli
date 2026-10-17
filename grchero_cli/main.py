@@ -14,6 +14,7 @@ from . import __version__
 from .auth import authorize_scan, load_credentials, login, logout
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
+from .submit import submit as submit_report
 
 RULES = [
     (
@@ -88,6 +89,13 @@ def parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report", help="Read an existing local JSON report")
     report.add_argument("path", help="Path to a saved report")
     report.add_argument("--format", choices=["text", "json"], default="text")
+    send = commands.add_parser(
+        "submit", help="Preview and, after confirmation, send a saved report to your workspace"
+    )
+    send.add_argument("path", help="Path to a report saved with --output")
+    send.add_argument("--project", metavar="UUID", help="Attach the report to a project")
+    send.add_argument("--title", help="Report title (default: derived from the scan date)")
+    send.add_argument("--yes", action="store_true", help="Confirm without prompting")
     return result
 
 
@@ -214,8 +222,20 @@ def run(args: argparse.Namespace) -> int:
         print(
             f"grcHero CLI {__version__}\nPython {platform.python_version()}\n"
             "Local scanner: available after grcHero sign-in\n"
-            "Source upload: disabled\nWorkspace reports: JSON import\nDocumentation: /docs/cli"
+            "Source upload: disabled\nWorkspace reports: `grchero submit` after confirmation\n"
+            "Documentation: /docs/cli"
         )
+        return 0
+    if args.command == "submit":
+        report = read_report(Path(args.path))
+        url = submit_report(
+            report,
+            title=args.title or f"CLI review {str(report.get('created_at', ''))[:10]}".strip(),
+            project_id=args.project,
+            assume_yes=args.yes,
+            stdin_is_terminal=sys.stdin.isatty(),
+        )
+        print(f"\nDraft report created. Open it to review and edit:\n  {url}")
         return 0
     if args.command == "report":
         report = read_report(Path(args.path))
