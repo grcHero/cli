@@ -211,7 +211,11 @@ def run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "whoami":
         credentials = load_credentials()
-        print(f"Workspace: {credentials.organization_name}\nAPI: {credentials.api_url}")
+        kind = "API token" if credentials.is_api_token else "signed-in person"
+        print(
+            f"Workspace: {credentials.organization_name}\nAPI: {credentials.api_url}\n"
+            f"Access: {kind}"
+        )
         return 0
     if args.command == "rules":
         print("grcHero local checks\n")

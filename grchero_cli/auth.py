@@ -39,6 +39,14 @@ class Credentials:
     organization_id: str
     organization_name: str
 
+    @property
+    def is_api_token(self) -> bool:
+        """grcHero API tokens act within explicit grants and cannot reach sign-in-only routes."""
+        return self.access_token.startswith(API_TOKEN_PREFIX)
+
+
+API_TOKEN_PREFIX = "grc_"
+
 
 def credential_path() -> Path:
     configured = os.getenv("GRCHERO_CONFIG_DIR")
@@ -132,8 +140,16 @@ def _save(credentials: Credentials) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _issuer_for(token: str) -> str:
+    """API tokens never talk to the identity provider, so they need no issuer URL."""
+    configured = os.getenv("GRCHERO_ISSUER_URL", "")
+    if token.startswith(API_TOKEN_PREFIX) and not configured:
+        return ""
+    return _origin(configured, "Issuer URL")
+
+
 def load_credentials() -> Credentials:
-    environment_token = os.getenv("GRCHERO_ACCESS_TOKEN", "")
+    environment_token = os.getenv("GRCHERO_API_TOKEN", "") or os.getenv("GRCHERO_ACCESS_TOKEN", "")
     if environment_token:
         organization_id = os.getenv("GRCHERO_ORGANIZATION_ID", "")
         try:
@@ -142,7 +158,7 @@ def load_credentials() -> Credentials:
             raise CliError("GRCHERO_ORGANIZATION_ID must be a valid workspace UUID.") from None
         return Credentials(
             api_url=_origin(os.getenv("GRCHERO_API_URL", ""), "API URL"),
-            issuer_url=_origin(os.getenv("GRCHERO_ISSUER_URL", ""), "Issuer URL"),
+            issuer_url=_issuer_for(environment_token),
             client_id=os.getenv("GRCHERO_CLIENT_ID", "environment"),
             audience=os.getenv("GRCHERO_AUDIENCE", "environment"),
             access_token=environment_token,

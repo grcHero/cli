@@ -82,6 +82,11 @@ def submit(
     if not 2 <= len(title) <= 120:
         raise CliError("Title must be 2 to 120 characters.")
     credentials = load_credentials()
+    if credentials.is_api_token:
+        raise CliError(
+            "Sending a report needs a signed-in person. API tokens can run scans "
+            "but cannot send reports. Run `grchero login`, or import the file in the browser."
+        )
     body = sanitize(report)
     print(preview(credentials, project_id, title, body))
     if not assume_yes:

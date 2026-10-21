@@ -55,6 +55,27 @@ def test_environment_credentials_are_supported_for_ci(monkeypatch: pytest.Monkey
     assert auth.load_credentials().access_token == "ci-token"
 
 
+def test_api_token_needs_no_issuer_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GRCHERO_API_TOKEN", "grc_0123456789ab_secret")
+    monkeypatch.delenv("GRCHERO_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("GRCHERO_ISSUER_URL", raising=False)
+    monkeypatch.setenv("GRCHERO_ORGANIZATION_ID", "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setenv("GRCHERO_API_URL", "https://app.example.test")
+    credentials = auth.load_credentials()
+    assert credentials.is_api_token
+    assert credentials.issuer_url == ""
+
+
+def test_other_tokens_still_require_an_issuer_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GRCHERO_ACCESS_TOKEN", "ci-token")
+    monkeypatch.delenv("GRCHERO_API_TOKEN", raising=False)
+    monkeypatch.delenv("GRCHERO_ISSUER_URL", raising=False)
+    monkeypatch.setenv("GRCHERO_ORGANIZATION_ID", "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setenv("GRCHERO_API_URL", "https://app.example.test")
+    with pytest.raises(CliError):
+        auth.load_credentials()
+
+
 def test_expired_or_insecure_credentials_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

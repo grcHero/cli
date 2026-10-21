@@ -139,3 +139,15 @@ def test_unexpected_response_is_an_error(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(submit, "_request", lambda *a, **k: {"id": "not-a-uuid"})
     with pytest.raises(CliError, match="unexpected response"):
         run()
+
+
+def test_api_tokens_cannot_send_reports(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+
+    monkeypatch.setattr(
+        submit,
+        "load_credentials",
+        lambda: replace(credentials(), access_token="grc_0123456789ab_x"),
+    )
+    with pytest.raises(CliError, match="signed-in person"):
+        run()

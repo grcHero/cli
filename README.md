@@ -38,9 +38,12 @@ it, or `grchero whoami` to see the selected workspace. Expired sessions require 
 new login. Production distributions will provide the trusted endpoint and client
 configuration; explicit flags keep development and self-hosted installations clear.
 
-CI may provide `GRCHERO_ACCESS_TOKEN`, `GRCHERO_ORGANIZATION_ID`,
-`GRCHERO_API_URL`, and `GRCHERO_ISSUER_URL` through its secret store. Use a
-dedicated least-privilege grcHero user, mask the token, and never commit it.
+CI should use a grcHero API token: create a service token under Settings, API tokens
+with the "Command line scans" permission, then provide `GRCHERO_API_TOKEN`,
+`GRCHERO_ORGANIZATION_ID` and `GRCHERO_API_URL` through its secret store. No issuer URL
+is needed. A token can run scans and `whoami`; `submit` needs a signed-in person and
+refuses a token. Mask the token and never commit it. `GRCHERO_ACCESS_TOKEN` with
+`GRCHERO_ISSUER_URL` still works for a signed-in user's access token.
 
 The default scope includes Dockerfiles and GitHub Actions workflows. Environment and source files require an explicit `--include`, for example `--include 'src/auth.ts'`. A `.grchero.json` at the project root can hold repeatable `include` and `exclude` arrays. Patterns use Python `fnmatch`, not gitignore semantics; exclusions always win.
 
