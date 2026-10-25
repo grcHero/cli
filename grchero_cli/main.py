@@ -12,6 +12,7 @@ from typing import Any
 
 from . import __version__
 from .auth import authorize_scan, load_credentials, login, logout
+from .deployment import deployment_defaults
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
 from .submit import submit as submit_report
@@ -200,8 +201,14 @@ def read_report(path: Path) -> dict[str, Any]:
 
 def run(args: argparse.Namespace) -> int:
     if args.command == "login":
+        # Flags and GRCHERO_* variables win; a release build supplies the rest.
+        stamped = deployment_defaults()
         credentials = login(
-            args.api_url, args.issuer, args.client_id, args.audience, args.organization
+            args.api_url or stamped.get("api_url", ""),
+            args.issuer or stamped.get("issuer_url", ""),
+            args.client_id or stamped.get("client_id", ""),
+            args.audience or stamped.get("audience", ""),
+            args.organization,
         )
         print(f"Signed in to {credentials.organization_name}.")
         return 0
@@ -223,8 +230,10 @@ def run(args: argparse.Namespace) -> int:
             print(f"{rule} [{severity}]\n  {description}")
         return 0
     if args.command == "doctor":
+        api_url = deployment_defaults().get("api_url")
         print(
             f"grcHero CLI {__version__}\nPython {platform.python_version()}\n"
+            f"Sign-in: {f'built in for {api_url}' if api_url else 'needs flags (source build)'}\n"
             "Local scanner: available after grcHero sign-in\n"
             "Source upload: disabled\nWorkspace reports: `grchero submit` after confirmation\n"
             "Documentation: /docs/cli"

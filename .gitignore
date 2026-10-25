@@ -7,3 +7,5 @@ __pycache__/
 .ruff_cache/
 *.pyc
 review.json
+# Stamped by scripts/build_release.py; never committed.
+grchero_cli/deployment.json

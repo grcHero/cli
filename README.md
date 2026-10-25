@@ -4,22 +4,40 @@ Review selected project files locally with deterministic security checks. A grcH
 
 Python 3.11 or newer is required. The scanner itself has no third-party runtime dependencies.
 
-## Install from source
+## Install
+
+```bash
+# macOS and Linux
+curl -fsSL https://grchero.dev/install.sh | sh
+# Windows PowerShell
+irm https://grchero.dev/install.ps1 | iex
+
+grchero login
+```
+
+The installer needs no Python setup or administrator rights, checks every download against
+its published SHA-256 sum and re-running it updates. Release builds already know where to
+sign in, so `grchero login` takes no options. The installer and release files are served by
+the grcHero deployment, not GitHub (grcHero ADR 0014).
+
+### From source (contributors)
 
 ```bash
 git clone https://github.com/grcHero/cli.git
 cd cli
 python3 -m venv .venv
-source .venv/bin/activate
+. .venv/bin/activate
 python -m pip install .
 grchero doctor
 ```
 
-On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`. The package has not yet been published to PyPI; install from a reviewed tag or commit when using it in CI.
+On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`. A source install has no
+built-in sign-in values: pass them to `grchero login` as shown below.
 
 ## First review
 
 ```bash
+# Source installs only; an installed release needs just `grchero login`
 grchero login \
   --api-url https://app.example.com \
   --issuer https://auth.example.com \
@@ -69,5 +87,11 @@ python -m pytest
 ruff check .
 ruff format --check .
 ```
+
+`python scripts/build_release.py --deployment values.json [--native]` builds the release
+files (single-file app, native program with PyInstaller as a build tool, checksums and
+manifest). `values.json` holds the deployment's public `api_url`, `issuer_url`, `client_id`
+and `audience`. The `Release` workflow builds every platform on a `v*` tag, reading those
+values from repository variables.
 
 The scanner and report contract are maintained here. Backend integration should consume a pinned release and test rule parity before upgrading. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
