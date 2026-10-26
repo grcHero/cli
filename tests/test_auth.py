@@ -95,3 +95,17 @@ def test_expired_or_insecure_credentials_fail_closed(
         auth.load_credentials()
     with pytest.raises(CliError, match="HTTPS"):
         auth._origin("http://remote.example.test", "API URL")
+
+
+def test_api_token_uses_the_release_api_url_when_none_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GRCHERO_API_TOKEN", "grc_example")
+    monkeypatch.setenv("GRCHERO_ORGANIZATION_ID", "00000000-0000-4000-8000-000000000001")
+    monkeypatch.delenv("GRCHERO_API_URL", raising=False)
+    monkeypatch.setattr(
+        auth, "deployment_defaults", lambda: {"api_url": "https://app.example.test"}
+    )
+    assert auth.load_credentials().api_url == "https://app.example.test"
+    monkeypatch.setenv("GRCHERO_API_URL", "https://other.example.test")
+    assert auth.load_credentials().api_url == "https://other.example.test"

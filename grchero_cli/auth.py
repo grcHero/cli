@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from .deployment import deployment_defaults
 from .scope import CliError
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
@@ -157,7 +158,11 @@ def load_credentials() -> Credentials:
         except ValueError:
             raise CliError("GRCHERO_ORGANIZATION_ID must be a valid workspace UUID.") from None
         return Credentials(
-            api_url=_origin(os.getenv("GRCHERO_API_URL", ""), "API URL"),
+            # A release already knows its server, so CI needs only the token and workspace.
+            api_url=_origin(
+                os.getenv("GRCHERO_API_URL", "") or deployment_defaults().get("api_url", ""),
+                "API URL",
+            ),
             issuer_url=_issuer_for(environment_token),
             client_id=os.getenv("GRCHERO_CLIENT_ID", "environment"),
             audience=os.getenv("GRCHERO_AUDIENCE", "environment"),
