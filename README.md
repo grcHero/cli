@@ -81,6 +81,36 @@ grchero work
 grchero evidence add test-results.pdf --control CC6.1 --note "Nightly test run"
 ```
 
+## Dependency check
+
+```bash
+grchero deps                      # the current folder
+grchero deps path/to/project --fail-on high
+grchero deps . --format sarif > deps.sarif
+grchero deps . --output deps.json # JSON report, never overwrites
+```
+
+`grchero deps` reads exact versions from lockfiles: `package-lock.json`,
+`npm-shrinkwrap.json`, `yarn.lock` (v1 and Berry), `pnpm-lock.yaml`, `requirements*.txt`
+(`name==version` pins only), `poetry.lock`, `uv.lock`, `Pipfile.lock`, `go.sum`,
+`Cargo.lock`, `Gemfile.lock`, `composer.lock` and NuGet `packages.lock.json`. A
+`package.json` without a lockfile is listed as "versions unknown" and skipped, never guessed.
+Discovery follows the scan rules: no symlinks, dependency and build folders skipped, at most
+200 lockfiles of 20 MiB each.
+
+Only the first four hex characters of the SHA-256 of each normalized package name leave the
+machine, grouped by ecosystem. grcHero returns every advisory in those buckets (OSV.dev data),
+and the CLI keeps the ones for your packages and compares versions locally. Package names,
+versions and lockfiles are never sent. When a version cannot be compared with an advisory's
+data, the advisory is shown as possibly affected rather than dropped. Malicious packages are
+always reported as critical.
+
+`--fail-on low|medium|high|critical` exits `1` for advisories at or above that severity,
+including possibly affected ones; advisories without a severity count only at `low`. The
+check needs a signed-in workspace or API token, like `scan`. JSON output is
+`{"schema_version": 1, "kind": "dependency-check", ...}`. A clean result means only that no
+known advisory matched the locked versions.
+
 ## Reports and CI
 
 `--format json` writes report schema version 1 to stdout. `--output FILE` creates a JSON report without overwriting an existing file. Reports include selected relative paths, applicable rule IDs, observations and file hashes; they exclude source text and detected credential values. A report may still reveal sensitive project information. Keep it private unless you deliberately choose to share it.
