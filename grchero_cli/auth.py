@@ -121,6 +121,8 @@ def _request(
     token: str = "",
     organization_id: str = "",
     method: str | None = None,
+    limit: int = 1_048_576,
+    timeout: int = DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:
     if data is not None and json_body is not None:
         raise ValueError("Choose form or JSON data, not both")
@@ -142,8 +144,10 @@ def _request(
         headers["X-Organization-ID"] = organization_id
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
-            raw = response.read(1_048_577)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read(limit + 1)
+            if len(raw) > limit:
+                raise ValueError("response too large")
             # 204 No Content (for example, linking evidence) is a success with nothing to read.
             if response.status == 204 or not raw.strip():
                 return {}

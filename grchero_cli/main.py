@@ -13,8 +13,11 @@ from typing import Any
 from . import __version__
 from .auth import authorize_scan, load_credentials, login, logout
 from .deployment import deployment_defaults
+from .deps import display as display_dependencies
+from .deps import failed as dependencies_failed
+from .deps import run_deps
 from .evidence import add_evidence
-from .results import existing_findings, fingerprint, to_sarif
+from .results import dependencies_to_sarif, existing_findings, fingerprint, to_sarif
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
 from .submit import submit as submit_report
@@ -85,6 +88,24 @@ def parser() -> argparse.ArgumentParser:
         choices=list(SEVERITY),
         default="none",
         help="CI threshold; exit 1 for findings at or above this severity",
+    )
+    deps = commands.add_parser(
+        "deps", help="Check locked dependency versions against known advisories"
+    )
+    deps.add_argument(
+        "path", nargs="?", default=".", help="Project directory (default: current directory)"
+    )
+    deps.add_argument("--format", choices=["text", "json", "sarif"], default="text")
+    deps.add_argument(
+        "--fail-on",
+        choices=["none", "low", "medium", "high", "critical"],
+        default="none",
+        help="CI threshold; exit 1 for advisories at or above this severity",
+    )
+    deps.add_argument(
+        "--output",
+        metavar="FILE",
+        help="Save a JSON report to a new file; existing files are never overwritten",
     )
     commands.add_parser("rules", help="List supported checks and their scope")
     commands.add_parser("doctor", help="Check the local runtime and available capabilities")
@@ -159,6 +180,16 @@ def display(report: dict[str, Any], existing: set[str] | None = None) -> str:
         ["", "Files stay on this machine. Reports omit source text and detected credential values."]
     )
     return "\n".join(lines)
+
+
+def write_new(path: Path, report: dict[str, Any]) -> None:
+    try:
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(report, indent=2) + "\n")
+    except OSError as cause:
+        raise CliError(
+            "Cannot create report. Choose a writable path that does not already exist."
+        ) from cause
 
 
 def read_report(path: Path) -> dict[str, Any]:
@@ -275,6 +306,21 @@ def run(args: argparse.Namespace) -> int:
             else display_work(kinds, workspace)
         )
         return 0
+    if args.command == "deps":
+        if args.output and Path(args.output).exists():
+            raise CliError(
+                "Cannot create report. Choose a writable path that does not already exist."
+            )
+        report = run_deps(args.path)
+        if args.output:
+            write_new(Path(args.output), report)
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        elif args.format == "sarif":
+            print(json.dumps(dependencies_to_sarif(report, __version__), indent=2))
+        else:
+            print(display_dependencies(report))
+        return 1 if dependencies_failed(report, args.fail_on) else 0
     if args.command == "rules":
         print("grcHero local checks\n")
         for rule, severity, description in RULES:
@@ -286,6 +332,7 @@ def run(args: argparse.Namespace) -> int:
             f"grcHero CLI {__version__}\nPython {platform.python_version()}\n"
             f"Sign-in: {f'built in for {api_url}' if api_url else 'needs flags (source build)'}\n"
             "Local scanner: available after grcHero sign-in\n"
+            "Dependency check: `grchero deps` (only hashed name prefixes leave this machine)\n"
             "Source upload: disabled\nWorkspace reports: `grchero submit` after confirmation\n"
             "Documentation: /docs/cli"
         )
@@ -354,13 +401,7 @@ def run(args: argparse.Namespace) -> int:
             "not a full security or compliance assessment.",
         }
         if args.output:
-            try:
-                with Path(args.output).open("x", encoding="utf-8") as stream:
-                    stream.write(json.dumps(report, indent=2) + "\n")
-            except OSError as cause:
-                raise CliError(
-                    "Cannot create report. Choose a writable path that does not already exist."
-                ) from cause
+            write_new(Path(args.output), report)
     if args.format == "json":
         print(json.dumps(report, indent=2))
     elif args.format == "sarif":
