@@ -254,3 +254,66 @@ def test_scan_requires_a_live_grchero_session(tmp_path: Path) -> None:
     )
     assert result.returncode == 2
     assert "grchero login" in result.stderr
+
+
+def sample_project(path: Path) -> None:
+    (path / ".github" / "workflows").mkdir(parents=True)
+    (path / "Dockerfile").write_text('FROM python:3.12-slim\nCMD ["python"]\n')
+    (path / ".github" / "workflows" / "deploy.yml").write_text(
+        "on: push\npermissions: write-all\njobs: {}\n"
+    )
+
+
+def test_sarif_output_for_code_scanning(tmp_path: Path) -> None:
+    sample_project(tmp_path)
+    result = invoke(tmp_path, "--format", "sarif")
+    assert result.returncode == 0, result.stderr
+    sarif = json.loads(result.stdout)
+    assert sarif["version"] == "2.1.0"
+    run = sarif["runs"][0]
+    assert run["tool"]["driver"]["name"] == "grcHero CLI"
+    assert {rule["id"] for rule in run["tool"]["driver"]["rules"]} >= {
+        "workflow-write-all",
+        "docker-user-review",
+    }
+    levels = {item["ruleId"]: item["level"] for item in run["results"]}
+    assert levels == {"workflow-write-all": "warning", "docker-user-review": "note"}
+    location = run["results"][0]["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"]["uriBaseId"] == "%SRCROOT%"
+    assert location["region"]["startLine"] >= 1
+    assert all("grcheroFinding/v1" in item["partialFingerprints"] for item in run["results"])
+    # SARIF carries observations, never file contents or credential values.
+    assert "python:3.12-slim" not in result.stdout
+
+
+def test_baseline_fails_only_on_new_observations(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sample_project(project)
+    baseline = tmp_path / "baseline.json"
+    assert invoke(project, "--output", str(baseline)).returncode == 0
+    unchanged = invoke(project, "--baseline", str(baseline), "--fail-on", "low")
+    assert unchanged.returncode == 0, unchanged.stdout
+    assert "0 new, 2 existing" in unchanged.stdout
+    assert "(in baseline)" in unchanged.stdout
+    # A line shift does not make an old observation new.
+    (project / "Dockerfile").write_text("\n\nFROM python:3.12-slim\n")
+    assert invoke(project, "--baseline", str(baseline), "--fail-on", "low").returncode == 0
+    (project / ".github" / "workflows" / "release.yml").write_text(
+        "on: push\npermissions: write-all\njobs: {}\n"
+    )
+    changed = invoke(project, "--baseline", str(baseline), "--fail-on", "medium")
+    assert changed.returncode == 1
+    assert "1 new, 2 existing" in changed.stdout
+    sarif = json.loads(invoke(project, "--baseline", str(baseline), "--format", "sarif").stdout)
+    states = sorted(item["baselineState"] for item in sarif["runs"][0]["results"])
+    assert states == ["new", "unchanged", "unchanged"]
+
+
+def test_bad_baseline_fails_before_reviewing(tmp_path: Path) -> None:
+    sample_project(tmp_path)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")
+    result = invoke(tmp_path, "--baseline", str(bad))
+    assert result.returncode == 2 and "Invalid report" in result.stderr
+    assert invoke(tmp_path, "--dry-run", "--baseline", str(bad)).returncode == 2

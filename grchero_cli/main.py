@@ -13,9 +13,13 @@ from typing import Any
 from . import __version__
 from .auth import authorize_scan, load_credentials, login, logout
 from .deployment import deployment_defaults
+from .evidence import add_evidence
+from .results import existing_findings, fingerprint, to_sarif
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
 from .submit import submit as submit_report
+from .work import display as display_work
+from .work import run_work
 
 RULES = [
     (
@@ -65,7 +69,12 @@ def parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--dry-run", action="store_true", help="Show selected file paths without running rules"
     )
-    scan.add_argument("--format", choices=["text", "json"], default="text")
+    scan.add_argument("--format", choices=["text", "json", "sarif"], default="text")
+    scan.add_argument(
+        "--baseline",
+        metavar="FILE",
+        help="An earlier JSON report; only new observations count for --fail-on",
+    )
     scan.add_argument(
         "--output",
         metavar="FILE",
@@ -87,9 +96,24 @@ def parser() -> argparse.ArgumentParser:
     sign_in.add_argument("--organization", default="", help="Workspace ID or slug")
     commands.add_parser("logout", help="Remove the saved CLI session")
     commands.add_parser("whoami", help="Show the active grcHero workspace")
+    evidence = commands.add_parser("evidence", help="Add evidence to your workspace")
+    evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
+    add = evidence_commands.add_parser(
+        "add", help="Preview and, after confirmation, upload one evidence file"
+    )
+    add.add_argument("path", help="A PDF, DOCX, XLSX, CSV, TXT, PNG or JPEG file")
+    add.add_argument("--name", help="Evidence name (default: the file name)")
+    add.add_argument("--control", metavar="CODE_OR_ID", help="Link it to this control")
+    add.add_argument("--project", metavar="UUID", help="Add it to a project")
+    add.add_argument("--note", default="", help="Why this file supports the control")
+    add.add_argument("--expires", metavar="YYYY-MM-DD", help="When the evidence goes stale")
+    add.add_argument("--yes", action="store_true", help="Confirm without prompting")
+    work = commands.add_parser("work", help="List the open work assigned to you")
+    work.add_argument("--project", metavar="UUID", help="Only work in this project")
+    work.add_argument("--format", choices=["text", "json"], default="text")
     report = commands.add_parser("report", help="Read an existing local JSON report")
     report.add_argument("path", help="Path to a saved report")
-    report.add_argument("--format", choices=["text", "json"], default="text")
+    report.add_argument("--format", choices=["text", "json", "sarif"], default="text")
     send = commands.add_parser(
         "submit", help="Preview and, after confirmation, send a saved report to your workspace"
     )
@@ -100,7 +124,7 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def display(report: dict[str, Any]) -> str:
+def display(report: dict[str, Any], existing: set[str] | None = None) -> str:
     files = report["files"]
     findings = report["findings"]
     lines = [
@@ -115,11 +139,17 @@ def display(report: dict[str, Any]) -> str:
         lines.append("Checks applied: " + (", ".join(applicable) if applicable else "none"))
     if not findings:
         lines.append("No observations from the enabled rules.")
+    if existing is not None:
+        new = sum(fingerprint(finding) not in existing for finding in findings)
+        lines.append(f"Compared with the baseline: {new} new, {len(findings) - new} existing.")
     for finding in findings:
+        marker = (
+            " (in baseline)" if existing is not None and fingerprint(finding) in existing else ""
+        )
         lines.extend(
             [
                 "",
-                f"[{finding['severity'].upper()}] {finding['title']}",
+                f"[{finding['severity'].upper()}] {finding['title']}{marker}",
                 f"  {finding['path']}:{finding['line']} · {finding['rule_id']}",
                 f"  {finding['observation']}",
                 f"  Next: {finding['recommendation']}",
@@ -224,6 +254,27 @@ def run(args: argparse.Namespace) -> int:
             f"Access: {kind}"
         )
         return 0
+    if args.command == "evidence":
+        url = add_evidence(
+            Path(args.path),
+            name=args.name,
+            control=args.control,
+            project=args.project,
+            note=args.note,
+            expires=args.expires,
+            assume_yes=args.yes,
+            stdin_is_terminal=sys.stdin.isatty(),
+        )
+        print(f"\nEvidence added for review:\n  {url}")
+        return 0
+    if args.command == "work":
+        kinds, workspace = run_work(args.project)
+        print(
+            json.dumps({"workspace": workspace, "work": kinds}, indent=2)
+            if args.format == "json"
+            else display_work(kinds, workspace)
+        )
+        return 0
     if args.command == "rules":
         print("grcHero local checks\n")
         for rule, severity, description in RULES:
@@ -250,13 +301,19 @@ def run(args: argparse.Namespace) -> int:
         )
         print(f"\nDraft report created. Open it to review and edit:\n  {url}")
         return 0
+    # Read the baseline first, so a bad file fails before a review is authorized.
+    baseline = getattr(args, "baseline", None)
+    existing = existing_findings(read_report(Path(baseline))) if baseline else None
     if args.command == "report":
         report = read_report(Path(args.path))
     else:
-        if args.dry_run and (args.output or args.fail_on != "none"):
+        if args.dry_run and (args.output or args.fail_on != "none" or args.baseline):
             raise CliError(
-                "--dry-run previews scope only. Remove --output and --fail-on when previewing."
+                "--dry-run previews scope only. "
+                "Remove --output, --fail-on and --baseline when previewing."
             )
+        if args.dry_run and args.format == "sarif":
+            raise CliError("--dry-run has no observations to report. Use text or json.")
         root = Path(args.path).resolve()
         if not root.is_dir():
             raise CliError("Project directory does not exist. Pass a directory to grchero scan.")
@@ -304,9 +361,19 @@ def run(args: argparse.Namespace) -> int:
                 raise CliError(
                     "Cannot create report. Choose a writable path that does not already exist."
                 ) from cause
-    print(json.dumps(report, indent=2) if args.format == "json" else display(report))
+    if args.format == "json":
+        print(json.dumps(report, indent=2))
+    elif args.format == "sarif":
+        print(json.dumps(to_sarif(report, RULES, __version__, existing), indent=2))
+    else:
+        print(display(report, existing))
+    counted = [
+        finding
+        for finding in report["findings"]
+        if existing is None or fingerprint(finding) not in existing
+    ]
     if args.command == "scan" and any(
-        SEVERITY[finding["severity"]] >= SEVERITY[args.fail_on] for finding in report["findings"]
+        SEVERITY[finding["severity"]] >= SEVERITY[args.fail_on] for finding in counted
     ):
         return 1
     return 0

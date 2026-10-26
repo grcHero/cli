@@ -2,7 +2,10 @@
 
 Require a live grcHero account and workspace authorization before every scan,
 including scope previews. Analysis still runs locally: never upload source files,
-execute reviewed source or include detected credentials in terminal/JSON output.
+execute reviewed source or include detected credentials in terminal/JSON/SARIF output.
+`grchero evidence add` is the only file upload: one file the person names, of a type the
+workspace accepts as evidence (never source code or folders), after a preview and
+confirmation (`--yes` in CI). It lands as unreviewed evidence; never mark it reviewed.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

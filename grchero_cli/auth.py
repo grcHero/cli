@@ -47,12 +47,48 @@ class Credentials:
 
 
 API_TOKEN_PREFIX = "grc_"
+UPLOAD_TIMEOUT = 120
 
 
 def credential_path() -> Path:
     configured = os.getenv("GRCHERO_CONFIG_DIR")
     root = Path(configured).expanduser() if configured else Path.home() / ".config" / "grchero"
     return root / "credentials.json"
+
+
+def _upload(url: str, path: Path, *, token: str, organization_id: str) -> dict[str, Any]:
+    """POST one file as the raw request body, streamed, with the same error handling."""
+    size = path.stat().st_size
+    with path.open("rb") as stream:
+        request = urllib.request.Request(
+            url,
+            data=stream,
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "grcHero-CLI",
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(size),
+                "Authorization": f"Bearer {token}",
+                "X-Organization-ID": organization_id,
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT) as response:
+                result = json.loads(response.read(1_048_577))
+        except urllib.error.HTTPError as cause:
+            try:
+                payload = json.loads(cause.read(65_537))
+                error = payload.get("error", {}) if isinstance(payload, dict) else {}
+                message = error.get("message", "") if isinstance(error, dict) else ""
+            except (json.JSONDecodeError, UnicodeError, ValueError):
+                message = ""
+            raise OAuthRequestError(str(message) or "grcHero rejected the upload.", "") from None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
+            raise CliError("Cannot reach grcHero. Check your connection and try again.") from None
+    if not isinstance(result, dict):
+        raise CliError("grcHero returned an invalid upload response.")
+    return result
 
 
 def _origin(value: str, label: str) -> str:
@@ -101,7 +137,11 @@ def _request(
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
-            result = json.loads(response.read(1_048_577))
+            raw = response.read(1_048_577)
+            # 204 No Content (for example, linking evidence) is a success with nothing to read.
+            if response.status == 204 or not raw.strip():
+                return {}
+            result = json.loads(raw)
         if not isinstance(result, dict) and not isinstance(result, list):
             raise ValueError
         return result  # type: ignore[return-value]

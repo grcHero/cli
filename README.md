@@ -67,6 +67,20 @@ The default scope includes Dockerfiles and GitHub Actions workflows. Environment
 
 Limits: 40 files, 256 KiB per file, 1 MiB total UTF-8 text, and 100 observations. Symlinks and common dependency/generated directories are skipped. The scanner does not execute project code or install project dependencies.
 
+## More commands
+
+```bash
+# Code scanning: SARIF for GitHub and other tools; fail only on new observations
+grchero scan . --format sarif > grchero.sarif
+grchero scan . --baseline baseline.json --fail-on medium
+
+# Your assigned work from the workspace
+grchero work
+
+# Add a file as evidence for a control (unreviewed until a person reviews it)
+grchero evidence add test-results.pdf --control CC6.1 --note "Nightly test run"
+```
+
 ## Reports and CI
 
 `--format json` writes report schema version 1 to stdout. `--output FILE` creates a JSON report without overwriting an existing file. Reports include selected relative paths, applicable rule IDs, observations and file hashes; they exclude source text and detected credential values. A report may still reveal sensitive project information. Keep it private unless you deliberately choose to share it.
