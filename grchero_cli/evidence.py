@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 from uuid import UUID
 
-from .auth import Credentials, _request, _upload, load_credentials
+from .auth import Credentials, _request, _upload, load_credentials, workspace_label
 from .scope import CliError
 
 
@@ -102,7 +102,7 @@ def add_evidence(
         "\n".join(
             [
                 "Evidence to add to grcHero",
-                f"  Workspace: {credentials.organization_name}",
+                f"  Workspace: {workspace_label(credentials)}",
                 f"  File:      {path.name} ({size:,} bytes, sha256 {digest[:12]})",
                 f"  Name:      {title}",
                 f"  Project:   {project or 'none'}",
@@ -118,7 +118,7 @@ def add_evidence(
     if not assume_yes:
         if not stdin_is_terminal:
             raise CliError("Confirmation needed. Re-run in a terminal, or pass --yes to confirm.")
-        answer = input(f"\nAdd to {credentials.organization_name}? [y/N] ").strip().lower()
+        answer = input(f"\nAdd to {workspace_label(credentials)}? [y/N] ").strip().lower()
         if answer not in {"y", "yes"}:
             raise CliError("Nothing was uploaded.")
     if existing:

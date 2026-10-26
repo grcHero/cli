@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
-from .auth import Credentials, OAuthRequestError, _request, load_credentials
+from .auth import Credentials, OAuthRequestError, _request, load_credentials, workspace_label
 from .scope import CliError
 
 # (key, heading, API path, workspace page). Paths mirror the browser's My work tabs.
@@ -118,4 +118,4 @@ def run_work(project: str | None) -> tuple[list[dict[str, Any]], str]:
     kinds, unavailable = collect(credentials, project)
     if len(unavailable) == len(KINDS):
         raise CliError("grcHero did not return any of your work. Run `grchero login` again.")
-    return kinds, credentials.organization_name
+    return kinds, workspace_label(credentials)

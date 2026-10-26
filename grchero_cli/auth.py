@@ -29,6 +29,12 @@ class OAuthRequestError(CliError):
         self.oauth_error = oauth_error
 
 
+def workspace_label(credentials: Credentials) -> str:
+    """The workspace name, or a plain phrase when a token gave only its ID."""
+    name = credentials.organization_name
+    return "your workspace" if not name or name == credentials.organization_id else name
+
+
 @dataclass(frozen=True)
 class Credentials:
     api_url: str
