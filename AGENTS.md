@@ -9,6 +9,9 @@ confirmation (`--yes` in CI). It lands as unreviewed evidence; never mark it rev
 `grchero deps` sends only 4-hex-character prefixes of sha256(normalized package name),
 grouped by ecosystem; never send package names, versions or lockfiles, and match
 advisories to versions locally.
+Every authenticated request to grcHero sends `X-Grchero-Client` and, when known,
+`X-Grchero-Agent` (from `GRCHERO_AGENT`, or Claude Code when `CLAUDECODE=1`); never send them to
+the sign-in server, and never treat them as a permission.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

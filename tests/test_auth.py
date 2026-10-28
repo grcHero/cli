@@ -109,3 +109,44 @@ def test_api_token_uses_the_release_api_url_when_none_is_set(
     assert auth.load_credentials().api_url == "https://app.example.test"
     monkeypatch.setenv("GRCHERO_API_URL", "https://other.example.test")
     assert auth.load_credentials().api_url == "https://other.example.test"
+
+
+def test_requests_name_the_client_and_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GRCHERO_AGENT", raising=False)
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    assert auth.client_headers() == {"X-Grchero-Client": f"grchero/{auth.__version__}"}
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert auth.client_headers()["X-Grchero-Agent"] == "Claude Code"
+    monkeypatch.setenv("GRCHERO_AGENT", "Release pipeline")
+    assert auth.client_headers()["X-Grchero-Agent"] == "Release pipeline"
+    monkeypatch.setenv("GRCHERO_AGENT", "bad\nname")
+    assert "X-Grchero-Agent" not in auth.client_headers()
+
+
+def test_only_authenticated_grchero_calls_carry_the_client_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return b"{}"
+
+    def urlopen(request, timeout):
+        seen.append({key.lower(): value for key, value in request.header_items()})
+        return Response()
+
+    monkeypatch.setenv("GRCHERO_AGENT", "Claude Code")
+    monkeypatch.setattr(auth.urllib.request, "urlopen", urlopen)
+    auth._request("https://auth.example.test/oauth/v2/token", data={"a": "b"})
+    auth._request("https://api.example.test/api/v1/organizations", token="t")
+    assert "x-grchero-client" not in seen[0]
+    assert seen[1]["x-grchero-agent"] == "Claude Code"

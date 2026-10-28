@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import tempfile
 import time
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from . import __version__
 from .deployment import deployment_defaults
 from .scope import CliError
 
@@ -62,6 +64,25 @@ def credential_path() -> Path:
     return root / "credentials.json"
 
 
+_AGENT_LABEL = re.compile(r"[A-Za-z0-9 ._/()+:-]{1,60}")
+
+
+def client_headers() -> dict[str, str]:
+    """Name this client, and the agent driving it, to grcHero.
+
+    grcHero records them in its audit log and applies the workspace's agent setting; they
+    never grant access. The agent comes from GRCHERO_AGENT, or is Claude Code when the CLI
+    runs inside it (CLAUDECODE=1). Anything that is not a short printable name is left out.
+    """
+    headers = {"X-Grchero-Client": f"grchero/{__version__}"}
+    agent = os.getenv("GRCHERO_AGENT", "").strip()
+    if not agent and os.getenv("CLAUDECODE") == "1":
+        agent = "Claude Code"
+    if _AGENT_LABEL.fullmatch(agent):
+        headers["X-Grchero-Agent"] = agent
+    return headers
+
+
 def _upload(url: str, path: Path, *, token: str, organization_id: str) -> dict[str, Any]:
     """POST one file as the raw request body, streamed, with the same error handling."""
     size = path.stat().st_size
@@ -77,6 +98,7 @@ def _upload(url: str, path: Path, *, token: str, organization_id: str) -> dict[s
                 "Content-Length": str(size),
                 "Authorization": f"Bearer {token}",
                 "X-Organization-ID": organization_id,
+                **client_headers(),
             },
         )
         try:
@@ -139,7 +161,9 @@ def _request(
     if json_body is not None:
         headers["Content-Type"] = "application/json"
     if token:
+        # Only grcHero receives a token; the sign-in server does not need these names.
         headers["Authorization"] = f"Bearer {token}"
+        headers.update(client_headers())
     if organization_id:
         headers["X-Organization-ID"] = organization_id
     request = urllib.request.Request(url, data=body, headers=headers, method=method)

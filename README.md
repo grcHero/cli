@@ -123,6 +123,15 @@ There are seven narrow text heuristics: credential-like assignments in environme
 
 The report's `schema_version` and `rules_version` are explicit so the grcHero API can validate observations without receiving source code. Each scan obtains a short server authorization for the selected workspace. Report upload remains a separate, explicit action: `grchero submit review.json [--project UUID] [--title TEXT]` previews the workspace, project, paths and observations, asks for confirmation (or `--yes`), then prints the draft URL. File hashes, source and detected values are never sent. Retrying the same command is safe because the import ID is derived from the workspace and content. Browser import still works, and nothing is uploaded unless you run `submit`. See [the report contract](docs/REPORT_FORMAT.md).
 
+## Agents
+
+AI agents can run the CLI like a person. Every request to grcHero names the client
+(`grchero/VERSION`) and, when known, the agent driving it, so the workspace audit log and CLI
+page show who acted and through what. Set `GRCHERO_AGENT` to name the agent, for example
+`GRCHERO_AGENT="Release pipeline"`; inside Claude Code it is named automatically. These names
+never grant access: owners choose in workspace Settings what agents may do (off, read only, or
+read and draft), and approving, publishing and administering stay in the workspace for people.
+
 ## Development
 
 ```bash
