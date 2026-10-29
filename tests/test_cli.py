@@ -12,6 +12,7 @@ from uuid import UUID
 
 import pytest
 
+from grchero_cli import __version__
 from grchero_cli.scanner import applicable_rule_ids, inspect_files
 from grchero_cli.scope import CliError, LocalFile, collect
 
@@ -27,7 +28,7 @@ def authenticated_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             assert self.headers["X-Organization-ID"] == "00000000-0000-4000-8000-000000000001"
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length))
-            assert payload["cli_version"] == "0.2.0"
+            assert payload["cli_version"] == __version__
             UUID(payload["request_id"])
             body = json.dumps(
                 {
