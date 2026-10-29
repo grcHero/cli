@@ -86,16 +86,33 @@ grchero evidence add test-results.pdf --control CC6.1 --note "Nightly test run"
 Work in your grcHero workspace as `grchero <area> <verb>`, like `gh`. `grchero help` lists every
 command and `grchero COMMAND --help` its options.
 
-| Area        | Verbs                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| `org`       | `list`, `view`, `use`                                                                            |
-| `project`   | `list`, `view`, `create`, `use`                                                                  |
-| `inbox`     | `list`, `read`                                                                                   |
-| `finding`   | `list`, `view`, `create`, `edit`, `start`, `submit`, `reopen`, `decide`                          |
-| `risk`      | `list`, `view`, `create`                                                                         |
-| `evidence`  | `list`, `search`, `link`, `add`                                                                  |
-| `exception` | `list`, `view`, `create`, `submit`, `withdraw`, `approve`, `reject`, `revoke`                    |
-| `change`    | `list`, `view`, `create`, `submit`, `approve`, `reject`, `implement`, `issue`, `close`, `cancel` |
+| Area               | Verbs                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| `org`              | `list`, `view`, `use`                                                                            |
+| `project`          | `list`, `view`, `create`, `use`                                                                  |
+| `inbox`            | `list`, `read`                                                                                   |
+| `finding`          | `list`, `view`, `create`, `edit`, `start`, `submit`, `reopen`, `decide`                          |
+| `risk`             | `list`, `view`, `create`                                                                         |
+| `evidence`         | `list`, `search`, `link`, `add`                                                                  |
+| `evidence-request` | `list`, `view`, `create`, `submit`, `decide`                                                     |
+| `exception`        | `list`, `view`, `create`, `submit`, `withdraw`, `approve`, `reject`, `revoke`                    |
+| `change`           | `list`, `view`, `create`, `submit`, `approve`, `reject`, `implement`, `issue`, `close`, `cancel` |
+| `asset`            | `list`, `view`, `create`, `edit`                                                                 |
+| `control`          | `list`, `view`, `create`, `evidence`                                                             |
+| `framework`        | `list`, `requirements`                                                                           |
+| `vendor`           | `list`, `view`, `create`                                                                         |
+| `vendor-review`    | `list`, `view`, `decide`                                                                         |
+| `document`         | `list`, `view`, `versions`                                                                       |
+| `document-review`  | `list`, `view`, `decide`, `publish`                                                              |
+| `questionnaire`    | `list`, `questions`                                                                              |
+| `assessment`       | `list`, `findings`                                                                               |
+| `access-review`    | `list`, `view`, `start`, `decide`, `complete`                                                    |
+| `incident`         | `list`, `view`, `create`, `investigate`, `contain`, `resolve`, `reopen`, `note`, `decide`        |
+| `continuity`       | `list`, `create`, `exercises`, `exercise`                                                        |
+| `privacy`          | `list`, `create`, `processors`                                                                   |
+| `member`           | `list`, `invite`, `role`, `remove`                                                               |
+| `token`            | `list`, `revoke`                                                                                 |
+| `agents`           | `view`, `set`                                                                                    |
 
 ```bash
 grchero project use "Customer portal"      # later commands use this project
@@ -115,6 +132,13 @@ grchero exception approve ID --note "Reviewed with the owner"   # confirmed in t
   version you reviewed.
 - **Owners.** New exceptions and change records are owned by you unless `--owner` names someone.
 - **Drafts.** New records start as drafts; nothing is approved until a person decides.
+- **Reviews.** A review decision answers the newest submission, so an older one is never
+  accepted by mistake.
+- **Administration.** Members, tokens, the agent setting and access reviews need your browser
+  confirmation and are never open to agents. Create API tokens in the workspace, so a secret is
+  never printed in a terminal; invitation links go by email and are never printed either.
+- **Everything else.** Anything without a named command (diagrams, questionnaire answers, trust
+  center sharing, integrations, billing) is reachable with `grchero api`.
 
 ## Dependency check
 

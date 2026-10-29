@@ -21,6 +21,11 @@ CHANGE = "00000000-0000-4000-8000-0000000000c1"
 EVIDENCE = "00000000-0000-4000-8000-0000000000d1"
 CONTROL = "00000000-0000-4000-8000-0000000000d2"
 CONFIRMATION = "00000000-0000-4000-8000-0000000000aa"
+REVIEW = "00000000-0000-4000-8000-0000000000ab"
+NEWEST = "00000000-0000-4000-8000-0000000000ac"
+OLDER = "00000000-0000-4000-8000-0000000000ad"
+ASSET = "00000000-0000-4000-8000-0000000000ae"
+INCIDENT = "00000000-0000-4000-8000-0000000000af"
 STATE: dict = {}
 
 
@@ -110,6 +115,34 @@ def route(method: str, path: str, body: dict, headers) -> tuple[int, object]:
         }
     if (method, bare) == ("POST", "/api/v1/notifications/read-all"):
         return 200, {"updated": 1}
+    if (method, bare) == ("GET", f"/api/v1/vendor-reviews/{REVIEW}"):
+        return 200, {
+            "id": REVIEW,
+            "vendor_name": "Acme Mail",
+            "status": "submitted",
+            "version": 4,
+            "submissions": [{"id": NEWEST}, {"id": OLDER}],
+        }
+    if (method, bare) == ("POST", f"/api/v1/vendor-reviews/{REVIEW}/decisions"):
+        return 200, {"id": REVIEW, "vendor_name": "Acme Mail", "status": "accepted"}
+    if (method, bare) == ("POST", "/api/v1/organizations/current/invitations"):
+        return 201, {
+            "invitation": {"email": body["email"]},
+            "invite_url": "https://secret",
+            "delivery": "sent",
+        }
+    if (method, bare) == ("GET", "/api/v1/organizations/current/agent-policy"):
+        return 200, {"cli": "write", "mcp": "off"}
+    if (method, bare) == ("PUT", "/api/v1/organizations/current/agent-policy"):
+        return 200, body
+    if (method, bare) == ("POST", "/api/v1/assets"):
+        return 201, {**body, "id": ASSET}
+    if (method, bare) == ("PUT", f"/api/v1/projects/{PROJECT}/assets/{ASSET}"):
+        return 204, None
+    if (method, bare) == ("GET", f"/api/v1/incidents/{INCIDENT}/response"):
+        return 200, {"id": INCIDENT, "title": "Phishing", "status": "contained", "version": 7}
+    if (method, bare) == ("POST", f"/api/v1/incidents/{INCIDENT}/transitions"):
+        return 200, {"id": INCIDENT, "title": "Phishing", "status": "resolved", "version": 8}
     return 404, refuse("not_found", f"No route {method} {bare}")
 
 
@@ -154,6 +187,9 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
         def do_POST(self):  # noqa: N802
             self.handle_one("POST")
+
+        def do_PUT(self):  # noqa: N802
+            self.handle_one("PUT")
 
         def log_message(self, _format, *_args):
             return
@@ -358,3 +394,112 @@ def test_evidence_links_and_inbox_text_is_safe(server, capsys) -> None:
     assert "\x1b" not in out and "Review [2Jdue" in out
     assert main.main(["inbox", "read"]) == 2
     assert main.main(["inbox", "read", "--all"]) == 0
+
+
+def test_review_decisions_answer_the_newest_submission(server, capsys) -> None:
+    args = [
+        "vendor-review",
+        "decide",
+        REVIEW,
+        "--decision",
+        "accept",
+        "--recommendation",
+        "proceed",
+        "--residual-risk",
+        "low",
+        "--note",
+        "SOC 2 report checked",
+    ]
+    assert main.main(args) == 0
+    sent = requests("POST", "/decisions")[-1]["body"]
+    assert sent["submission_id"] == NEWEST and sent["expected_version"] == 4
+    assert sent["recommendation"] == "proceed" and sent["next_review_on"] is None
+    assert "Decision recorded." in capsys.readouterr().out
+
+
+def test_invitation_links_are_never_printed(server, capsys) -> None:
+    args = ["member", "invite", "--email", "ada@example.com", "--role", "viewer", "--json"]
+    assert main.main(args) == 0
+    out = capsys.readouterr().out
+    assert "https://secret" not in out and json.loads(out)["delivery"] == "sent"
+
+
+def test_agent_setting_keeps_what_is_not_changed(server, capsys) -> None:
+    assert main.main(["agents", "set", "--mcp", "read"]) == 0
+    assert requests("PUT", "/agent-policy")[-1]["body"] == {"cli": "write", "mcp": "read"}
+    assert "AI apps using MCP: read only" in capsys.readouterr().out
+    assert main.main(["agents", "set"]) == 2
+
+
+def test_new_assets_join_the_project_in_use(server) -> None:
+    args = [
+        "asset",
+        "create",
+        "--name",
+        "Billing API",
+        "--type",
+        "software",
+        "--criticality",
+        "4",
+        "--project",
+        "Customer portal",
+    ]
+    assert main.main(args) == 0
+    assert requests("POST", "/api/v1/assets")[-1]["body"]["criticality"] == 4
+    assert requests("PUT", f"/projects/{PROJECT}/assets/{ASSET}")
+    assert (
+        main.main(["asset", "create", "--name", "x", "--type", "other", "--criticality", "9"]) == 2
+    )
+
+
+def test_a_resolution_is_a_retryable_submission(server) -> None:
+    args = [
+        "incident",
+        "resolve",
+        INCIDENT,
+        "--note",
+        "Mailbox rules removed",
+        "--evidence",
+        EVIDENCE,
+        "--key",
+        CONFIRMATION,
+    ]
+    assert main.main(args) == 0
+    sent = requests("POST", "/transitions")[-1]["body"]
+    assert sent == {
+        "expected_version": 7,
+        "action": "resolve",
+        "note": "Mailbox rules removed",
+        "submission_key": CONFIRMATION,
+        "evidence_ids": [EVIDENCE],
+    }
+
+
+def test_every_area_is_in_the_help(capsys) -> None:
+    assert main.main(["help", "--json"]) == 0
+    names = {
+        entry["name"]: entry["tier"] for entry in json.loads(capsys.readouterr().out)["commands"]
+    }
+    for area in (
+        "asset",
+        "control",
+        "framework",
+        "vendor",
+        "vendor-review",
+        "evidence-request",
+        "document",
+        "document-review",
+        "questionnaire",
+        "assessment",
+        "access-review",
+        "incident",
+        "continuity",
+        "privacy",
+        "member",
+        "token",
+        "agents",
+    ):
+        assert any(name.startswith(area + " ") for name in names), area
+    assert names["member invite"] == names["agents set"] == "administer"
+    assert names["access-review decide"] == "administer"
+    assert names["incident decide"] == names["document-review publish"] == "decide"

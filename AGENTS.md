@@ -23,6 +23,9 @@ usage, 3 waiting for confirmation, 4 not allowed), keep `--json` output as grcHe
 strip control characters from server text in terminal output, and never prompt outside a
 terminal. Workflow verbs send the record's current version; never retry a refused version.
 `context.json` holds only workspace and project IDs and names.
+Area modules (`commands.py`, `assurance.py`, `operations.py`, `admin.py`) import only from
+`catalog.py`. Never create API tokens from the CLI or print an invitation link or any other
+secret grcHero returns. Review decisions answer the newest submission.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.
