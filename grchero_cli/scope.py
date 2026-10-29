@@ -32,7 +32,15 @@ MAX_TOTAL_BYTES = 1_048_576
 
 
 class CliError(Exception):
-    """An actionable, safe error suitable for terminal output."""
+    """An actionable, safe error suitable for terminal output.
+
+    ``exit_code`` follows the CLI's fixed codes: 1 failed, 2 usage or local problem,
+    3 waiting for a browser confirmation, 4 not allowed.
+    """
+
+    def __init__(self, message: str = "", exit_code: int = 2) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
 
 
 @dataclass(frozen=True)

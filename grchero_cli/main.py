@@ -9,11 +9,13 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from . import __version__
+from . import commands as catalog
 from .api import METHODS
 from .api import call as call_api
-from .auth import authorize_scan, load_credentials, login, logout
+from .auth import OAuthRequestError, authorize_scan, confirmation_mode, login, logout
 from .deployment import deployment_defaults
 from .deps import display as display_dependencies
 from .deps import failed as dependencies_failed
@@ -25,6 +27,7 @@ from .scope import CliError, collect, load_configuration, read_text
 from .submit import submit as submit_report
 from .work import display as display_work
 from .work import run_work
+from .workspace import open_workspace
 
 RULES = [
     (
@@ -44,12 +47,25 @@ RULES = [
     ("dynamic-evaluation", "medium", "Dynamic eval call in selected source files"),
 ]
 SEVERITY = {"none": 4, "high": 3, "medium": 2, "low": 1}
+# Tiers of the hand-written commands, for `grchero help --json` (catalog commands carry their own).
+TIERS = {
+    "scan": "write",
+    "deps": "read",
+    "api": "any",
+    "whoami": "read",
+    "evidence add": "write",
+    "work": "read",
+    "submit": "write",
+}
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="grchero",
-        description="Run authenticated, local security reviews with grcHero.",
+        description="Work in grcHero from a terminal, and run local security reviews.",
+        epilog="Exit codes: "
+        + "; ".join(f"{code} {meaning}" for code, meaning in catalog.EXIT_CODES.items())
+        + ". `grchero help --json` lists every command for scripts and agents.",
     )
     result.add_argument("--version", action="version", version=f"grchero {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
@@ -136,6 +152,16 @@ def parser() -> argparse.ArgumentParser:
         help="A typed field, for example expected_version=3",
     )
     api.add_argument("--input", metavar="FILE", help="A JSON object to send as the body")
+    api.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="If confirmation is needed, print the link and exit 3 instead of waiting",
+    )
+    api.add_argument(
+        "--confirmation",
+        metavar="ID",
+        help="Run again after confirming in the browser; waits until it is confirmed",
+    )
     commands.add_parser("whoami", help="Show the active grcHero workspace")
     evidence = commands.add_parser("evidence", help="Add evidence to your workspace")
     evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
@@ -152,6 +178,7 @@ def parser() -> argparse.ArgumentParser:
     work = commands.add_parser("work", help="List the open work assigned to you")
     work.add_argument("--project", metavar="UUID", help="Only work in this project")
     work.add_argument("--format", choices=["text", "json"], default="text")
+    work.add_argument("--json", action="store_true", help="Same as --format json")
     report = commands.add_parser("report", help="Read an existing local JSON report")
     report.add_argument("path", help="Path to a saved report")
     report.add_argument("--format", choices=["text", "json", "sarif"], default="text")
@@ -162,7 +189,53 @@ def parser() -> argparse.ArgumentParser:
     send.add_argument("--project", metavar="UUID", help="Attach the report to a project")
     send.add_argument("--title", help="Report title (default: derived from the scan date)")
     send.add_argument("--yes", action="store_true", help="Confirm without prompting")
+    describe = commands.add_parser("help", help="List every command; --json for agents")
+    describe.add_argument("--json", action="store_true", help="Print the catalog as JSON")
+    catalog.install(commands, {"evidence": evidence_commands})
     return result
+
+
+def show_help(args: argparse.Namespace) -> int:
+    entries = catalog.describe(parser(), TIERS)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "version": __version__,
+                    "exit_codes": {str(code): text for code, text in catalog.EXIT_CODES.items()},
+                    "tiers": {
+                        "read": "runs at once",
+                        "write": "runs at once; records stay drafts until a person decides",
+                        "decide": "waits for the person to confirm in the browser",
+                        "administer": "waits for the person to confirm; never for agents",
+                        "local": "changes nothing in grcHero",
+                    },
+                    "commands": entries,
+                },
+                indent=2,
+            )
+        )
+        return 0
+    width = max(len(entry["name"]) for entry in entries)
+    print("grchero commands\n")
+    for entry in entries:
+        print(f"  {entry['name'].ljust(width)}  {entry['summary']}  [{entry['tier']}]")
+    print("\nRun `grchero COMMAND --help` for its options.")
+    return 0
+
+
+def set_confirmation_mode(args: argparse.Namespace) -> None:
+    """Wait for the browser in a terminal; otherwise stop with exit 3 and the link."""
+    preset = getattr(args, "confirmation", None) or ""
+    if preset:
+        try:
+            preset = str(UUID(preset))
+        except ValueError:
+            raise CliError("--confirmation must be the ID grcHero printed.") from None
+    confirmation_mode.preset = preset
+    confirmation_mode.wait = (
+        not getattr(args, "no_wait", False) and sys.stdin.isatty() and sys.stderr.isatty()
+    )
 
 
 def display(report: dict[str, Any], existing: set[str] | None = None) -> str:
@@ -281,6 +354,13 @@ def read_report(path: Path) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> int:
+    set_confirmation_mode(args)
+    if getattr(args, "catalog", None):
+        output = catalog.run(args)
+        print(json.dumps(output.data, indent=2) if args.json else output.text)
+        return 0
+    if args.command == "help":
+        return show_help(args)
     if args.command == "login":
         # Flags and GRCHERO_* variables win; a release build supplies the rest.
         stamped = deployment_defaults()
@@ -302,11 +382,13 @@ def run(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "whoami":
-        credentials = load_credentials()
+        current = open_workspace()
+        credentials = current.credentials
         kind = "API token" if credentials.is_api_token else "signed-in person"
+        project = catalog.clean(current.project_name) if current.project_id else "none"
         print(
             f"Workspace: {credentials.organization_name}\nAPI: {credentials.api_url}\n"
-            f"Access: {kind}"
+            f"Access: {kind}\nDefault project: {project}"
         )
         return 0
     if args.command == "evidence":
@@ -326,7 +408,7 @@ def run(args: argparse.Namespace) -> int:
         kinds, workspace = run_work(args.project)
         print(
             json.dumps({"workspace": workspace, "work": kinds}, indent=2)
-            if args.format == "json"
+            if args.format == "json" or args.json
             else display_work(kinds, workspace)
         )
         return 0
@@ -455,7 +537,14 @@ def main(argv: list[str] | None = None) -> int:
             else "Cannot read the selected project. Check permissions and try again."
         )
         print(f"grchero: {message}", file=sys.stderr)
-        return 2
+        code = cause.exit_code if isinstance(cause, CliError) else 2
+        if getattr(args, "json", False) or args.command == "api":
+            # Scripts and agents read the same error grcHero gave, unchanged, on stdout.
+            error: dict[str, Any] = {"code": "cli_error", "message": message, "details": {}}
+            if isinstance(cause, OAuthRequestError) and cause.code:
+                error.update(code=cause.code, details=cause.details)
+            print(json.dumps({"error": error, "exit_code": code}, indent=2))
+        return code
     except KeyboardInterrupt:
         print("grchero: Review cancelled.", file=sys.stderr)
         return 130

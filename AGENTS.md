@@ -15,6 +15,14 @@ the sign-in server, and never treat them as a permission.
 When grcHero answers `confirmation_required`, open only its `/confirm/` HTTPS link, wait for the
 person's answer and repeat the identical request once with `X-Grchero-Confirmation`; never
 confirm on the person's behalf. `grchero api` paths stay relative to the workspace API.
+Workspace commands (`grchero <area> <verb>`) live in the `COMMANDS` catalog in
+`grchero_cli/commands.py`, which builds both the parser and `grchero help --json`; never add one
+outside it. Each command's tier must match grcHero's `action_tier()` for its request (the backend
+lists every CLI call in `tests/test_agent_access.py`). Keep exit codes fixed (0 done, 1 failed, 2
+usage, 3 waiting for confirmation, 4 not allowed), keep `--json` output as grcHero returns it,
+strip control characters from server text in terminal output, and never prompt outside a
+terminal. Workflow verbs send the record's current version; never retry a refused version.
+`context.json` holds only workspace and project IDs and names.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

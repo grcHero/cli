@@ -293,7 +293,8 @@ def test_package_json_without_lockfile_is_not_guessed(server, tmp_path: Path, ca
 
 def test_server_errors_and_bad_responses(server, project: Path, capsys) -> None:
     STATE["response"] = (403, {"error": {"message": "This workspace cannot run checks."}})
-    assert main.main(["deps", str(project)]) == 2
+    # Not allowed has its own exit code, so scripts can tell it from a failure.
+    assert main.main(["deps", str(project)]) == 4
     assert "This workspace cannot run checks." in capsys.readouterr().err
     STATE["response"] = (200, {"advisories": "nope"})
     assert main.main(["deps", str(project)]) == 2

@@ -34,16 +34,37 @@ class OAuthRequestError(CliError):
         oauth_error: str = "",
         code: str = "",
         details: dict[str, Any] | None = None,
+        status: int = 0,
     ) -> None:
-        super().__init__(message)
+        # 3 waiting for the person to confirm, 4 not allowed, 1 any other refusal.
+        exit_code = 3 if code == "confirmation_required" else 4 if status in {401, 403} else 1
+        super().__init__(message, exit_code)
         self.oauth_error = oauth_error
         # grcHero's own error code and details, for example "confirmation_required".
         self.code = code
         self.details = details or {}
+        self.status = status
 
 
 CONFIRMATION_WAIT_SECONDS = 600
 CONFIRMATION_POLL_SECONDS = 2
+
+
+@dataclass
+class ConfirmationMode:
+    """How this run answers ``confirmation_required``.
+
+    ``wait``: show the link and wait for the person (the default in a terminal). Otherwise the
+    command stops with exit code 3 and the link, and is run again with ``--confirmation ID``
+    (``preset``), which waits until that confirmation is answered and sends it with the one
+    request that changes something.
+    """
+
+    wait: bool = True
+    preset: str = ""
+
+
+confirmation_mode = ConfirmationMode()
 
 
 def _confirmation_link(value: object) -> str:
@@ -74,12 +95,25 @@ def _await_confirmation(url: str, token: str, organization_id: str, details: dic
         raise CliError("grcHero asked for a confirmation without an ID.") from None
     link = _confirmation_link(details.get("confirm_url", ""))
     print(
-        "This needs your confirmation in the browser before it runs:\n"
-        f"  {link}\nWaiting for you to confirm…",
+        f"This needs your confirmation in the browser before it runs:\n  {link}",
         file=sys.stderr,
     )
     with contextlib.suppress(webbrowser.Error):
         webbrowser.open(link)
+    if not confirmation_mode.wait:
+        raise OAuthRequestError(
+            "Waiting for confirmation in the browser. After confirming, run the same command "
+            f"again with --confirmation {confirmation}.",
+            "",
+            "confirmation_required",
+            {"confirmation_id": confirmation, "confirm_url": link},
+            403,
+        )
+    print("Waiting for you to confirm…", file=sys.stderr)
+    return _wait_until_confirmed(url, token, organization_id, confirmation)
+
+
+def _wait_until_confirmed(url: str, token: str, organization_id: str, confirmation: str) -> str:
     base = url.split("/api/v1/", 1)[0]
     deadline = time.monotonic() + CONFIRMATION_WAIT_SECONDS
     while time.monotonic() < deadline:
@@ -177,9 +211,13 @@ def _upload(url: str, path: Path, *, token: str, organization_id: str) -> dict[s
                 message = error.get("message", "") if isinstance(error, dict) else ""
             except (json.JSONDecodeError, UnicodeError, ValueError):
                 message = ""
-            raise OAuthRequestError(str(message) or "grcHero rejected the upload.", "") from None
+            raise OAuthRequestError(
+                str(message) or "grcHero rejected the upload.", "", status=cause.code
+            ) from None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
-            raise CliError("Cannot reach grcHero. Check your connection and try again.") from None
+            raise CliError(
+                "Cannot reach grcHero. Check your connection and try again.", 1
+            ) from None
     if not isinstance(result, dict):
         raise CliError("grcHero returned an invalid upload response.")
     return result
@@ -233,6 +271,16 @@ def _request(
         headers.update(client_headers())
     if organization_id:
         headers["X-Organization-ID"] = organization_id
+    if (
+        not confirmation
+        and confirmation_mode.preset
+        and token
+        and method in {"POST", "PUT", "PATCH", "DELETE"}
+    ):
+        # A rerun with --confirmation: the one request that changes something carries it, once
+        # the person has confirmed it. A different request is refused by grcHero.
+        preset, confirmation_mode.preset = confirmation_mode.preset, ""
+        confirmation = _wait_until_confirmed(url, token, organization_id, preset)
     if confirmation:
         headers["X-Grchero-Confirmation"] = confirmation
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
@@ -283,9 +331,10 @@ def _request(
             code if isinstance(code, str) else "",
             api_code,
             details,
+            cause.code,
         ) from None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError, ValueError):
-        raise CliError("Cannot reach grcHero. Check your connection and try again.") from None
+        raise CliError("Cannot reach grcHero. Check your connection and try again.", 1) from None
 
 
 def _save(credentials: Credentials) -> None:

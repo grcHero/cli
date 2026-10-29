@@ -81,6 +81,41 @@ grchero work
 grchero evidence add test-results.pdf --control CC6.1 --note "Nightly test run"
 ```
 
+## Workspace commands
+
+Work in your grcHero workspace as `grchero <area> <verb>`, like `gh`. `grchero help` lists every
+command and `grchero COMMAND --help` its options.
+
+| Area        | Verbs                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `org`       | `list`, `view`, `use`                                                                            |
+| `project`   | `list`, `view`, `create`, `use`                                                                  |
+| `inbox`     | `list`, `read`                                                                                   |
+| `finding`   | `list`, `view`, `create`, `edit`, `start`, `submit`, `reopen`, `decide`                          |
+| `risk`      | `list`, `view`, `create`                                                                         |
+| `evidence`  | `list`, `search`, `link`, `add`                                                                  |
+| `exception` | `list`, `view`, `create`, `submit`, `withdraw`, `approve`, `reject`, `revoke`                    |
+| `change`    | `list`, `view`, `create`, `submit`, `approve`, `reject`, `implement`, `issue`, `close`, `cancel` |
+
+```bash
+grchero project use "Customer portal"      # later commands use this project
+grchero finding list --mine
+grchero change create --title "Release 2.4" --type release --risk medium \
+  --summary "New billing page" --release v2.4.0 --env production
+grchero change submit ID
+grchero exception approve ID --note "Reviewed with the owner"   # confirmed in the browser
+```
+
+- **Workspace and project.** `grchero org use` switches your sign-in to another of your
+  workspaces; `grchero project use` saves a default project for the workspace (in
+  `context.json` next to your credentials: IDs and names only). `--org` and `--project` override
+  them for one command, and `--project none` acts on the whole workspace.
+- **Versions.** Workflow verbs read the record and send its current version, so a change made in
+  the meantime is refused, never overwritten. `--version N` acts only if the record is still the
+  version you reviewed.
+- **Owners.** New exceptions and change records are owned by you unless `--owner` names someone.
+- **Drafts.** New records start as drafts; nothing is approved until a person decides.
+
 ## Dependency check
 
 ```bash
@@ -140,6 +175,11 @@ the CLI prints and opens a link, you check what it will do and sign in again, an
 repeats the identical request once. A declined or expired request does nothing. API tokens
 cannot decide or administer.
 
+Outside a terminal (scripts and agents), or with `--no-wait`, the CLI does not wait: it prints
+the link, exits with code 3 and, with `--json`, prints the confirmation ID. After the person
+confirms, run the same command again with `--confirmation ID`; the CLI waits until that
+confirmation is answered and sends it with the request.
+
 ## Agents
 
 AI agents can run the CLI like a person. Every request to grcHero names the client
@@ -147,7 +187,19 @@ AI agents can run the CLI like a person. Every request to grcHero names the clie
 page show who acted and through what. Set `GRCHERO_AGENT` to name the agent, for example
 `GRCHERO_AGENT="Release pipeline"`; inside Claude Code it is named automatically. These names
 never grant access: owners choose in workspace Settings what agents may do (off, read only, or
-read and draft), and approving, publishing and administering stay in the workspace for people.
+read and draft). An agent can ask a person to confirm a decision, and never administers.
+
+What an agent needs:
+
+- `grchero help --json` describes every command: its arguments, choices, tier (read, write,
+  decide, administer or local) and an example.
+- `--json` on workspace commands prints the record or list exactly as grcHero returns it. On
+  failure it prints `{"error": {"code", "message", "details"}, "exit_code"}` with grcHero's own
+  error code.
+- Exit codes are fixed: 0 done, 1 failed (grcHero refused the request or could not be reached),
+  2 usage or local problem, 3 waiting for the person to confirm in the browser, 4 not allowed for
+  this sign-in, role or agent setting.
+- No command prompts outside a terminal.
 
 ## Development
 
