@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import time
 import urllib.error
@@ -26,9 +28,73 @@ DEFAULT_TIMEOUT = 10
 
 
 class OAuthRequestError(CliError):
-    def __init__(self, message: str, oauth_error: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        oauth_error: str = "",
+        code: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.oauth_error = oauth_error
+        # grcHero's own error code and details, for example "confirmation_required".
+        self.code = code
+        self.details = details or {}
+
+
+CONFIRMATION_WAIT_SECONDS = 600
+CONFIRMATION_POLL_SECONDS = 2
+
+
+def _confirmation_link(value: object) -> str:
+    """Open only a grcHero confirmation page over HTTPS (HTTP on loopback)."""
+    parsed = urllib.parse.urlsplit(str(value))
+    local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if (
+        parsed.scheme not in ({"http", "https"} if local else {"https"})
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or not parsed.path.startswith("/confirm/")
+    ):
+        raise CliError("grcHero sent an invalid confirmation link.")
+    return str(value)
+
+
+def _await_confirmation(url: str, token: str, organization_id: str, details: dict[str, Any]) -> str:
+    """Show the confirmation link, wait for the person to answer it, return its ID.
+
+    Decisions and administration from the CLI need the person to confirm that one request in
+    the browser after signing in again. Nothing runs until they do.
+    """
+    confirmation = str(details.get("confirmation_id", ""))
+    try:
+        UUID(confirmation)
+    except ValueError:
+        raise CliError("grcHero asked for a confirmation without an ID.") from None
+    link = _confirmation_link(details.get("confirm_url", ""))
+    print(
+        "This needs your confirmation in the browser before it runs:\n"
+        f"  {link}\nWaiting for you to confirm…",
+        file=sys.stderr,
+    )
+    with contextlib.suppress(webbrowser.Error):
+        webbrowser.open(link)
+    base = url.split("/api/v1/", 1)[0]
+    deadline = time.monotonic() + CONFIRMATION_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        value = _request(
+            f"{base}/api/v1/confirmations/{confirmation}",
+            token=token,
+            organization_id=organization_id,
+        )
+        state = value.get("state") if isinstance(value, dict) else None
+        if state == "confirmed":
+            return confirmation
+        if state in {"declined", "expired", "used"}:
+            raise CliError(f"Not done: the request was {state} in the browser.")
+        time.sleep(CONFIRMATION_POLL_SECONDS)
+    raise CliError("Not done: the request was not confirmed in time.")
 
 
 def workspace_label(credentials: Credentials) -> str:
@@ -145,6 +211,7 @@ def _request(
     method: str | None = None,
     limit: int = 1_048_576,
     timeout: int = DEFAULT_TIMEOUT,
+    confirmation: str = "",
 ) -> dict[str, Any]:
     if data is not None and json_body is not None:
         raise ValueError("Choose form or JSON data, not both")
@@ -166,6 +233,8 @@ def _request(
         headers.update(client_headers())
     if organization_id:
         headers["X-Organization-ID"] = organization_id
+    if confirmation:
+        headers["X-Grchero-Confirmation"] = confirmation
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -180,20 +249,40 @@ def _request(
             raise ValueError
         return result  # type: ignore[return-value]
     except urllib.error.HTTPError as cause:
+        api_code = ""
+        details: dict[str, Any] = {}
         try:
             payload = json.loads(cause.read(65_537))
             code = payload.get("error", "") if isinstance(payload, dict) else ""
             if isinstance(code, dict):
                 message = code.get("message", "")
+                api_code = str(code.get("code", ""))
+                details = code.get("details") if isinstance(code.get("details"), dict) else {}
             else:
                 message = (
                     payload.get("error_description", code) if isinstance(payload, dict) else ""
                 )
         except (json.JSONDecodeError, UnicodeError, ValueError):
+            code = ""
             message = ""
+        if api_code == "confirmation_required" and token and not confirmation:
+            confirmed = _await_confirmation(url, token, organization_id, details)
+            return _request(
+                url,
+                data=data,
+                json_body=json_body,
+                token=token,
+                organization_id=organization_id,
+                method=method,
+                limit=limit,
+                timeout=timeout,
+                confirmation=confirmed,
+            )
         raise OAuthRequestError(
             str(message) or "grcHero rejected the authentication request.",
             code if isinstance(code, str) else "",
+            api_code,
+            details,
         ) from None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError, ValueError):
         raise CliError("Cannot reach grcHero. Check your connection and try again.") from None

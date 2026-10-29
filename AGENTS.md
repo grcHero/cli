@@ -12,6 +12,9 @@ advisories to versions locally.
 Every authenticated request to grcHero sends `X-Grchero-Client` and, when known,
 `X-Grchero-Agent` (from `GRCHERO_AGENT`, or Claude Code when `CLAUDECODE=1`); never send them to
 the sign-in server, and never treat them as a permission.
+When grcHero answers `confirmation_required`, open only its `/confirm/` HTTPS link, wait for the
+person's answer and repeat the identical request once with `X-Grchero-Confirmation`; never
+confirm on the person's behalf. `grchero api` paths stay relative to the workspace API.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

@@ -123,6 +123,23 @@ There are seven narrow text heuristics: credential-like assignments in environme
 
 The report's `schema_version` and `rules_version` are explicit so the grcHero API can validate observations without receiving source code. Each scan obtains a short server authorization for the selected workspace. Report upload remains a separate, explicit action: `grchero submit review.json [--project UUID] [--title TEXT]` previews the workspace, project, paths and observations, asks for confirmation (or `--yes`), then prints the draft URL. File hashes, source and detected values are never sent. Retrying the same command is safe because the import ID is derived from the workspace and content. Browser import still works, and nothing is uploaded unless you run `submit`. See [the report contract](docs/REPORT_FORMAT.md).
 
+## Any API call
+
+`grchero api METHOD PATH` calls any grcHero endpoint for the signed-in workspace and prints
+the JSON, like `gh api`. Add text fields with `-f key=value`, typed ones with
+`-F key=JSON`, or a whole body with `--input FILE`:
+
+```bash
+grchero api GET /exceptions
+grchero api POST /exceptions/ID/decisions -f decision=approve -F expected_version=3
+```
+
+Reading and writing run at once. Anything that decides (approve, reject, close, publish) or
+administers (members, tokens, settings) needs you to confirm that one request in the browser:
+the CLI prints and opens a link, you check what it will do and sign in again, and the CLI then
+repeats the identical request once. A declined or expired request does nothing. API tokens
+cannot decide or administer.
+
 ## Agents
 
 AI agents can run the CLI like a person. Every request to grcHero names the client

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .api import METHODS
+from .api import call as call_api
 from .auth import authorize_scan, load_credentials, login, logout
 from .deployment import deployment_defaults
 from .deps import display as display_dependencies
@@ -116,6 +118,24 @@ def parser() -> argparse.ArgumentParser:
     sign_in.add_argument("--audience", default=os.getenv("GRCHERO_AUDIENCE", ""))
     sign_in.add_argument("--organization", default="", help="Workspace ID or slug")
     commands.add_parser("logout", help="Remove the saved CLI session")
+    api = commands.add_parser(
+        "api",
+        help="Call any grcHero API endpoint; decisions wait for your browser confirmation",
+    )
+    api.add_argument("method", type=str.upper, choices=METHODS)
+    api.add_argument("path", help="API path, for example /risks or /exceptions/ID/decisions")
+    api.add_argument(
+        "-f", "--field", action="append", default=[], metavar="KEY=VALUE", help="A text field"
+    )
+    api.add_argument(
+        "-F",
+        "--raw-field",
+        action="append",
+        default=[],
+        metavar="KEY=JSON",
+        help="A typed field, for example expected_version=3",
+    )
+    api.add_argument("--input", metavar="FILE", help="A JSON object to send as the body")
     commands.add_parser("whoami", help="Show the active grcHero workspace")
     evidence = commands.add_parser("evidence", help="Add evidence to your workspace")
     evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
@@ -276,6 +296,10 @@ def run(args: argparse.Namespace) -> int:
     if args.command == "logout":
         logout()
         print("Signed out of grcHero CLI.")
+        return 0
+    if args.command == "api":
+        result = call_api(args.method, args.path, args.field, args.raw_field, args.input)
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "whoami":
         credentials = load_credentials()
