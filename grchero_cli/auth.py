@@ -165,6 +165,13 @@ def credential_path() -> Path:
 
 
 _AGENT_LABEL = re.compile(r"[A-Za-z0-9 ._/()+:-]{1,60}")
+# Set by `grchero mcp`: requests then come from the MCP server, driven by the AI app.
+_identity: dict[str, str] = {}
+
+
+def identify(client: str, agent: str) -> None:
+    """Name another client of this package (the MCP server) and the app driving it."""
+    _identity.update(client=client, agent=agent)
 
 
 def client_headers() -> dict[str, str]:
@@ -174,8 +181,8 @@ def client_headers() -> dict[str, str]:
     never grant access. The agent comes from GRCHERO_AGENT, or is Claude Code when the CLI
     runs inside it (CLAUDECODE=1). Anything that is not a short printable name is left out.
     """
-    headers = {"X-Grchero-Client": f"grchero/{__version__}"}
-    agent = os.getenv("GRCHERO_AGENT", "").strip()
+    headers = {"X-Grchero-Client": _identity.get("client") or f"grchero/{__version__}"}
+    agent = _identity.get("agent") or os.getenv("GRCHERO_AGENT", "").strip()
     if not agent and os.getenv("CLAUDECODE") == "1":
         agent = "Claude Code"
     if _AGENT_LABEL.fullmatch(agent):

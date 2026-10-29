@@ -204,6 +204,30 @@ the link, exits with code 3 and, with `--json`, prints the confirmation ID. Afte
 confirms, run the same command again with `--confirmation ID`; the CLI waits until that
 confirmation is answered and sends it with the request.
 
+## AI apps (MCP)
+
+`grchero mcp` serves your workspace to an AI app, such as Claude Desktop or an IDE assistant,
+over the Model Context Protocol on standard input and output. It uses your CLI sign-in.
+
+```json
+{ "mcpServers": { "grchero": { "command": "grchero", "args": ["mcp"] } } }
+```
+
+In Claude Code: `claude mcp add grchero -- grchero mcp`. Add `--read-only` to offer read tools
+only.
+
+- **Off until allowed.** An owner or admin turns on "AI apps through MCP" in workspace Settings,
+  AI agents: read only, or read and draft. Every request names the app, for the audit log.
+- **Read tools:** `search`, `list_records`, `get_record`, `my_work`, `list_projects`,
+  `project_status`.
+- **Draft tools:** `draft_finding`, `draft_risk`, `draft_change_record`, `draft_exception`,
+  `link_evidence`. Each creates a draft or open record that a person reviews.
+- **No decisions.** There is no tool to approve, close, publish or administer: each record
+  carries an `open_in_workspace` link for the person who decides.
+- **Records are data.** Results are marked as untrusted text for the app, long text is
+  shortened and a result is at most 60,000 characters. Nothing is sent anywhere but your
+  grcHero workspace.
+
 ## Agents
 
 AI agents can run the CLI like a person. Every request to grcHero names the client

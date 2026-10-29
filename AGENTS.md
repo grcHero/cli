@@ -26,6 +26,10 @@ terminal. Workflow verbs send the record's current version; never retry a refuse
 Area modules (`commands.py`, `assurance.py`, `operations.py`, `admin.py`) import only from
 `catalog.py`. Never create API tokens from the CLI or print an invitation link or any other
 secret grcHero returns. Review decisions answer the newest submission.
+`grchero mcp` (`grchero_cli/mcp.py`) writes only protocol messages to stdout (everything else
+to stderr), names itself `grchero-mcp/VERSION` with the app's name, never waits for a browser
+confirmation and offers no tool that decides or administers; drafts must create draft or open
+records only. Mark every result as untrusted data and keep the size limits.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

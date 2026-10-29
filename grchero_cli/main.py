@@ -21,6 +21,7 @@ from .deps import display as display_dependencies
 from .deps import failed as dependencies_failed
 from .deps import run_deps
 from .evidence import add_evidence
+from .mcp import serve as serve_mcp
 from .results import dependencies_to_sarif, existing_findings, fingerprint, to_sarif
 from .scanner import applicable_rule_ids, inspect_files
 from .scope import CliError, collect, load_configuration, read_text
@@ -56,6 +57,7 @@ TIERS = {
     "evidence add": "write",
     "work": "read",
     "submit": "write",
+    "mcp": "read and draft (the workspace's MCP setting decides)",
 }
 
 
@@ -189,6 +191,14 @@ def parser() -> argparse.ArgumentParser:
     send.add_argument("--project", metavar="UUID", help="Attach the report to a project")
     send.add_argument("--title", help="Report title (default: derived from the scan date)")
     send.add_argument("--yes", action="store_true", help="Confirm without prompting")
+    mcp = commands.add_parser(
+        "mcp",
+        help="Serve grcHero to an AI app over MCP (standard input and output)",
+        description="Run a local MCP server for an AI app such as Claude Desktop. It uses this "
+        "sign-in, offers read and draft tools and never decides; the workspace's AI agents "
+        "setting must allow MCP.",
+    )
+    mcp.add_argument("--read-only", action="store_true", help="Offer read tools only")
     describe = commands.add_parser("help", help="List every command; --json for agents")
     describe.add_argument("--json", action="store_true", help="Print the catalog as JSON")
     catalog.install(commands, {"evidence": evidence_commands})
@@ -361,6 +371,8 @@ def run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "help":
         return show_help(args)
+    if args.command == "mcp":
+        return serve_mcp(args.read_only)
     if args.command == "login":
         # Flags and GRCHERO_* variables win; a release build supplies the rest.
         stamped = deployment_defaults()
