@@ -283,6 +283,8 @@ def finding_decide(args: argparse.Namespace) -> Output:
         "note": args.note,
         "expires_on": as_day(args.expires, "--expires"),
     }
+    if args.duplicate_of:
+        body["duplicate_of"] = as_id(args.duplicate_of)
     item = ws.call("POST", f"{path}/decisions", body)
     return done(item, "Decision recorded.", FINDING_FIELDS[:3], _finding_link(ws, item))
 
@@ -692,12 +694,13 @@ WORKSPACE: list[Command] = [
             ("start", "Start work on a finding"),
             ("submit", "Submit a fix for review"),
             ("reopen", "Reopen a finding"),
+            ("close", "Close a settled finding (fix approved or set aside)"),
         )
     ],
     Command(
         "finding",
         "decide",
-        "Decide a submitted fix, accept the risk or mark it a false positive",
+        "Decide a submitted fix, or set a finding aside (risk, false positive, duplicate, suppress)",
         "decide",
         finding_decide,
         (
@@ -706,10 +709,21 @@ WORKSPACE: list[Command] = [
                 "--outcome",
                 "Decision",
                 required=True,
-                choices=("approve_fix", "request_changes", "accept_risk", "false_positive"),
+                choices=(
+                    "approve_fix",
+                    "request_changes",
+                    "accept_risk",
+                    "false_positive",
+                    "duplicate",
+                    "suppress",
+                ),
             ),
             Arg("--note", "Why (8 characters or more)", required=True),
-            Arg("--expires", "For accept_risk: when to look again, YYYY-MM-DD"),
+            Arg(
+                "--expires",
+                "For accept_risk, false_positive or suppress: when to look again, YYYY-MM-DD",
+            ),
+            Arg("--duplicate-of", "For duplicate: the ID of the original finding"),
             VERSION,
         ),
         'grchero finding decide ID --outcome approve_fix --note "Retest passed"',

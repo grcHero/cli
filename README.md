@@ -91,7 +91,7 @@ command and `grchero COMMAND --help` its options.
 | `org`              | `list`, `view`, `use`                                                                            |
 | `project`          | `list`, `view`, `create`, `use`                                                                  |
 | `inbox`            | `list`, `read`                                                                                   |
-| `finding`          | `list`, `view`, `create`, `edit`, `start`, `submit`, `reopen`, `decide`                          |
+| `finding`          | `list`, `view`, `create`, `edit`, `start`, `submit`, `reopen`, `close`, `decide`                 |
 | `risk`             | `list`, `view`, `create`                                                                         |
 | `evidence`         | `list`, `search`, `link`, `add`                                                                  |
 | `evidence-request` | `list`, `view`, `create`, `submit`, `decide`                                                     |

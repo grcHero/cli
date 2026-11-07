@@ -277,6 +277,17 @@ def test_workflow_verbs_send_the_current_version(server, capsys) -> None:
     assert main.main(["finding", "view"]) == 2
 
 
+def test_a_settled_finding_closes_and_decide_offers_every_outcome(server, capsys) -> None:
+    assert main.main(["finding", "close", FINDING, "--note", "Fix is live"]) == 0
+    sent = requests("POST", "/transitions")[-1]["body"]
+    assert sent["action"] == "close" and sent["note"] == "Fix is live"
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        main.main(["finding", "decide", "--help"])
+    usage = capsys.readouterr().out
+    assert "duplicate" in usage and "suppress" in usage and "--duplicate-of" in usage
+
+
 def test_a_decision_outside_a_terminal_stops_with_the_link_then_runs_once(server, capsys) -> None:
     created = main.main(
         [
