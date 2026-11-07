@@ -700,7 +700,7 @@ WORKSPACE: list[Command] = [
     Command(
         "finding",
         "decide",
-        "Decide a submitted fix, or set a finding aside (risk, false positive, duplicate, suppress)",
+        "Decide a submitted fix, or set a finding aside (risk, false positive, duplicate)",
         "decide",
         finding_decide,
         (
