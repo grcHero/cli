@@ -20,6 +20,27 @@ its published SHA-256 sum and re-running it updates. Release builds already know
 sign in, so `grchero login` takes no options. The installer and release files are served by
 the grcHero deployment, not GitHub (grcHero ADR 0014).
 
+### Verify a release
+
+Each release's `SHA256SUMS` is signed with [minisign](https://jedisct1.github.io/minisign/).
+The installer checks it where it can (minisign, or OpenSSL on macOS and Linux), but it comes
+from the same server as the files, so for a sensitive machine or a CI image check the release
+yourself with this key, which you got from GitHub rather than from that server:
+
+```text
+RWQ5Vt6y2ka+SfiqHO2p58I1bwqUvRGlyTwFpz4dqu/0/iS2Ii+9yc3l
+```
+
+```bash
+curl -fsSLO https://grchero.dev/cli/SHA256SUMS
+curl -fsSLO https://grchero.dev/cli/SHA256SUMS.minisig
+minisign -Vm SHA256SUMS -P RWQ5Vt6y2ka+SfiqHO2p58I1bwqUvRGlyTwFpz4dqu/0/iS2Ii+9yc3l
+sha256sum --ignore-missing -c SHA256SUMS   # after downloading the file you want
+```
+
+Key ID `49BE46DAB2DE5639`. A change of key will be announced here and in the grcHero
+documentation before releases are signed with it.
+
 ### From source (contributors)
 
 ```bash
