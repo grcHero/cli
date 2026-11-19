@@ -718,6 +718,92 @@ def draft_document(args: dict[str, Any]) -> Any:
     }
 
 
+def draft_vendor(args: dict[str, Any]) -> Any:
+    ws = _ws(args)
+    body = {
+        "name": args["name"],
+        "description": args.get("description", ""),
+        "criticality": args.get("criticality", "medium"),
+        "project_id": ws.project_id,
+    }
+    return _link(ws, "vendors", ws.call("POST", "/vendors", body))
+
+
+def draft_incident(args: dict[str, Any]) -> Any:
+    ws = _ws(args)
+    body = {
+        "title": args["title"],
+        "description": args.get("description", ""),
+        "severity": args["severity"],
+        "status": "detected",
+        "project_id": ws.project_id,
+    }
+    return {
+        **_link(ws, "incidents", ws.call("POST", "/incidents", body)),
+        "result": "Recorded as detected. A person leads the response in the workspace.",
+    }
+
+
+# Questionnaires: an agent drafts answers; people review and approve the whole package.
+
+
+def _answers(ws: Workspace, questionnaire: str) -> dict[str, dict[str, Any]]:
+    saved = items_of(ws.get(f"/questionnaires/{questionnaire}/responses"))
+    return {str(item.get("question_id")): item for item in saved}
+
+
+def questionnaire_questions(args: dict[str, Any]) -> Any:
+    ws = open_workspace(None, NO_PROJECT)
+    questionnaire = as_id(str(args["questionnaire"]), "questionnaire")
+    answers = _answers(ws, questionnaire)
+    rows = []
+    for question in items_of(ws.get(f"/questionnaires/{questionnaire}/questions")):
+        saved = answers.get(str(question.get("id")))
+        by_person = saved is not None and saved.get("source_kind") != "ai"
+        rows.append(
+            {
+                "question_id": question.get("id"),
+                "code": question.get("code"),
+                "question": question.get("prompt"),
+                "type": question.get("question_type"),
+                "required": question.get("required"),
+                "choices": (question.get("source") or {}).get("choices") or [],
+                "answer": saved.get("answer") if saved else None,
+                "note": saved.get("evidence_note") if saved else None,
+                "answered": "by a person"
+                if by_person
+                else "AI-assisted draft"
+                if saved
+                else "not answered",
+                "agent_may_draft": not by_person,
+            }
+        )
+    return rows
+
+
+def draft_questionnaire_answer(args: dict[str, Any]) -> Any:
+    ws = open_workspace(None, NO_PROJECT)
+    questionnaire = as_id(str(args["questionnaire"]), "questionnaire")
+    question = as_id(str(args["question_id"]), "question_id")
+    saved = _answers(ws, questionnaire).get(question)
+    body = {
+        "question_id": question,
+        "answer": args["answer"],
+        "evidence_note": args.get("note", ""),
+        "source_kind": "ai",
+        "source_refs": [],
+        "expected_updated_at": saved.get("updated_at") if saved else None,
+    }
+    ws.call("POST", "/questionnaire-responses", body)
+    page = KINDS["questionnaires"]["page"].format(id=questionnaire)
+    return {
+        "question_id": question,
+        "result": "Saved as an AI-assisted draft answer. A person checks it, and the whole "
+        "questionnaire is reviewed by someone else before it is sent.",
+        "open_in_workspace": ws.page(page),
+    }
+
+
 SEVERITY = {"type": "string", "enum": ["low", "medium", "high", "critical"]}
 CHANGE_TYPES = ["release", "configuration", "infrastructure", "vendor", "access", "data", "other"]
 EXCEPTION_KINDS = ["policy", "control", "risk_acceptance", "finding_deadline"]
@@ -1084,6 +1170,70 @@ TOOLS = [
             ("template", "title", "content"),
         ),
         draft_document,
+        draft=True,
+    ),
+    Tool(
+        "draft_vendor",
+        "Draft a vendor",
+        "Record a supplier or service provider the organization uses. It is marked as written "
+        "by an agent until a person checks it; due diligence and reviews stay with people.",
+        _schema(
+            {
+                "name": _text("Vendor name", minLength=1, maxLength=300),
+                "description": _text("What they provide and the data they touch", maxLength=9_000),
+                "criticality": SEVERITY,
+                "project": PROJECT,
+            },
+            ("name",),
+        ),
+        draft_vendor,
+        draft=True,
+    ),
+    Tool(
+        "draft_incident",
+        "Record a suspected incident",
+        "Record something that looks like a security incident, as detected. Use it only for "
+        "what you actually observed. A person triages it and leads the response; you cannot "
+        "progress or close it.",
+        _schema(
+            {
+                "title": _text("Short title", minLength=1, maxLength=300),
+                "description": _text("What was observed, where and when", maxLength=20_000),
+                "severity": SEVERITY,
+                "project": PROJECT,
+            },
+            ("title", "severity"),
+        ),
+        draft_incident,
+        draft=True,
+    ),
+    Tool(
+        "questionnaire_questions",
+        "Read a questionnaire's questions",
+        "The questions of one security questionnaire with the current answer to each, and "
+        "whether an agent may draft it (never over a person's own answer).",
+        _schema(
+            {"questionnaire": _text("Questionnaire ID (see list_records, kind questionnaires)")},
+            ("questionnaire",),
+        ),
+        questionnaire_questions,
+    ),
+    Tool(
+        "draft_questionnaire_answer",
+        "Draft a questionnaire answer",
+        "Save a draft answer to one question, marked AI-assisted. Answer only from records you "
+        "read in grcHero and say in the note where it comes from; leave a question unanswered "
+        "rather than guess. People review the questionnaire before it is sent.",
+        _schema(
+            {
+                "questionnaire": _text("Questionnaire ID"),
+                "question_id": _text("Question ID from questionnaire_questions"),
+                "answer": _text("The answer", minLength=1, maxLength=20_000),
+                "note": _text("Where the answer comes from", maxLength=2000),
+            },
+            ("questionnaire", "question_id", "answer"),
+        ),
+        draft_questionnaire_answer,
         draft=True,
     ),
 ]

@@ -20,6 +20,9 @@ FINDING = "00000000-0000-4000-8000-0000000000f1"
 PROJECT = "00000000-0000-4000-8000-0000000000a1"
 EVIDENCE = "00000000-0000-4000-8000-0000000000e1"
 ACTION = "access.mfa"
+FORM = "00000000-0000-4000-8000-0000000000c1"
+Q_PERSON = "00000000-0000-4000-8000-0000000000c2"
+Q_OPEN = "00000000-0000-4000-8000-0000000000c3"
 SEEN: list[dict] = []
 STATE: dict = {}
 
@@ -153,6 +156,39 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 return respond(self, 200, {"templates": [template, {"slug": "srs", "kind": "srs"}]})
             if path == "/api/v1/documents/guided/access-policy" and method == "POST":
                 return respond(self, 201, {"id": "doc1", "title": body["title"], "status": "draft"})
+            if path == "/api/v1/vendors" and method == "POST":
+                return respond(self, 201, {**body, "id": "v1"})
+            if path == "/api/v1/incidents" and method == "POST":
+                return respond(self, 201, {**body, "id": "i1"})
+            if path == f"/api/v1/questionnaires/{FORM}/questions":
+                questions = [
+                    {"id": Q_PERSON, "code": "Q1", "prompt": "Encrypt?", "question_type": "text"},
+                    {
+                        "id": Q_OPEN,
+                        "code": "Q2",
+                        "prompt": "Restore tests?",
+                        "question_type": "choice",
+                        "source": {"choices": ["Yes", "No"]},
+                    },
+                ]
+                return respond(self, 200, questions)
+            if path == f"/api/v1/questionnaires/{FORM}/responses":
+                saved = [
+                    {
+                        "question_id": Q_PERSON,
+                        "answer": "Yes",
+                        "source_kind": "manual",
+                        "updated_at": "2026-11-01T10:00:00Z",
+                    },
+                    *STATE.get("answers", []),
+                ]
+                return respond(self, 200, saved)
+            if path == "/api/v1/questionnaire-responses" and method == "POST":
+                if body["question_id"] == Q_PERSON:
+                    refusal = {"code": "agent_draft_only", "message": "A person wrote that."}
+                    return respond(self, 403, {"error": refusal})
+                STATE["answers"] = [{**body, "updated_at": "2026-11-19T09:00:00Z"}]
+                return respond(self, 200, {**body, "id": "r1"})
             return respond(self, 404, {"error": {"code": "not_found", "message": path}})
 
         def do_GET(self):  # noqa: N802
@@ -243,7 +279,7 @@ def test_the_handshake_and_the_tools_on_offer(workspace) -> None:
     assert hello["serverInfo"] == {"name": "grchero", "title": "grcHero", "version": __version__}
     assert "never made here" in hello["instructions"]
     tools = {tool["name"]: tool for tool in replies[1]["result"]["tools"]}
-    assert len(tools) == 23
+    assert len(tools) == 27
     assert tools["get_record"]["annotations"]["readOnlyHint"] is True
     assert tools["draft_finding"]["annotations"]["readOnlyHint"] is False
     # No tool decides or administers anything.
@@ -275,6 +311,7 @@ def test_read_only_offers_no_drafts(workspace) -> None:
     replies = session(True, initialize(), {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = {tool["name"] for tool in replies[1]["result"]["tools"]}
     assert names == {
+        "questionnaire_questions",
         "search",
         "list_records",
         "get_record",
@@ -428,7 +465,7 @@ def test_the_2026_protocol_needs_no_handshake(workspace) -> None:
     assert server == {"name": "grchero", "title": "grcHero", "version": __version__}
     listed = replies[1]["result"]
     assert (listed["resultType"], listed["cacheScope"]) == ("complete", "public")
-    assert listed["ttlMs"] > 0 and len(listed["tools"]) == 23
+    assert listed["ttlMs"] > 0 and len(listed["tools"]) == 27
     # The same order every time, so an app can cache the list.
     assert [t["name"] for t in listed["tools"]] == [t.name for t in mcp.TOOLS]
     called = replies[2]["result"]
@@ -581,6 +618,59 @@ def test_diagrams_assets_and_documents_are_left_as_drafts(workspace) -> None:
     assert "no part named status" in replies[6]["result"]["content"][0]["text"]
     info = data(replies[7]["result"])
     assert info["workspace"] == "Acme" and info["ai_apps_may"] == "read and write drafts"
+
+
+def test_vendors_incidents_and_questionnaire_answers_are_drafts(workspace) -> None:
+    replies = session(
+        False,
+        initialize(),
+        call(2, "draft_vendor", {"name": "Mailer Inc", "project": PROJECT}),
+        call(3, "draft_incident", {"title": "Key in a log", "severity": "high"}),
+        call(4, "questionnaire_questions", {"questionnaire": FORM}),
+        call(
+            5,
+            "draft_questionnaire_answer",
+            {"questionnaire": FORM, "question_id": Q_OPEN, "answer": "Yes", "note": "Runbook 4"},
+        ),
+        call(
+            6,
+            "draft_questionnaire_answer",
+            {"questionnaire": FORM, "question_id": Q_OPEN, "answer": "Yes, monthly"},
+        ),
+        call(
+            7,
+            "draft_questionnaire_answer",
+            {"questionnaire": FORM, "question_id": Q_PERSON, "answer": "No"},
+        ),
+    )
+    vendor = data(replies[1]["result"])
+    assert vendor["id"] == "v1" and vendor["criticality"] == "medium"
+    incident = data(replies[2]["result"])
+    assert incident["status"] == "detected" and "person leads" in incident["result"]
+    # The incident tool has no way to send any other status.
+    assert (
+        "status"
+        not in next(t for t in mcp.TOOLS if t.name == "draft_incident").schema["properties"]
+    )
+    questions = {row["code"]: row for row in data(replies[3]["result"])}
+    assert questions["Q1"]["answered"] == "by a person"
+    assert not questions["Q1"]["agent_may_draft"]
+    assert questions["Q2"]["answered"] == "not answered" and questions["Q2"]["agent_may_draft"]
+    assert questions["Q2"]["choices"] == ["Yes", "No"]
+    assert "AI-assisted draft" in data(replies[4]["result"])["result"]
+    sent = [r["body"] for r in SEEN if r["path"] == "/api/v1/questionnaire-responses"]
+    assert sent[0] == {
+        "question_id": Q_OPEN,
+        "answer": "Yes",
+        "evidence_note": "Runbook 4",
+        "source_kind": "ai",
+        "source_refs": [],
+        "expected_updated_at": None,
+    }
+    # The second save names the version it replaces, so a person's newer edit is never lost.
+    assert sent[1]["expected_updated_at"] == "2026-11-19T09:00:00Z"
+    refusal = replies[6]["result"]
+    assert refusal["isError"] and "Leave a draft for a person" in refusal["content"][0]["text"]
 
 
 def test_arguments_are_checked_before_anything_is_sent(workspace) -> None:

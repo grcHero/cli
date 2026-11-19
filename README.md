@@ -241,7 +241,7 @@ only.
   AI agents: read only, or read and draft. Every request names the app, for the audit log.
 - **Read tools:** `workspace_info`, `search`, `list_records`, `get_record`, `my_work`,
   `list_projects`, `project_status`, `list_checklist`, `get_checklist_action` (an action with
-  the brief written for an agent), `waiting_for_a_person` and `document_templates`.
+  the brief written for an agent), `waiting_for_a_person`, `document_templates` and `questionnaire_questions`.
 - **Draft tools:** every one leaves a draft for a person.
   - `propose_checklist_update` proposes where a checklist action stands, with what was done,
     what is still missing and evidence. The action does not change: a person accepts or
@@ -252,9 +252,13 @@ only.
     evidence to a control.
   - `propose_diagram` hands over a Mermaid flowchart. It becomes a diagram only when a person
     opens it in the editor, where it is marked "AI draft, not reviewed".
-  - `draft_finding`, `draft_risk`, `draft_asset`, `draft_control`, `draft_change_record`,
-    `draft_exception` and `draft_document` (from a guided template). grcHero marks each as
-    written by an agent until a person checks it.
+  - `draft_finding`, `draft_risk`, `draft_asset`, `draft_control`, `draft_vendor`,
+    `draft_change_record`, `draft_exception` and `draft_document` (from a guided template).
+    grcHero marks each as written by an agent until a person checks it.
+  - `draft_incident` records something observed as a detected incident. A person triages it
+    and leads the response; the tool cannot progress or close it.
+  - `draft_questionnaire_answer` saves an answer marked AI-assisted. grcHero refuses it over
+    an answer a person wrote, and while the questionnaire is with a reviewer or was accepted.
 - **No decisions.** There is no tool to accept, approve, review, close, publish, delete or
   administer: each record carries an `open_in_workspace` link for the person who decides.
 - **No local files.** No tool reads a file from your computer. To add a file as evidence, run
