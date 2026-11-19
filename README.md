@@ -239,15 +239,33 @@ only.
 
 - **Off until allowed.** An owner or admin turns on "AI apps through MCP" in workspace Settings,
   AI agents: read only, or read and draft. Every request names the app, for the audit log.
-- **Read tools:** `search`, `list_records`, `get_record`, `my_work`, `list_projects`,
-  `project_status`.
-- **Draft tools:** `draft_finding`, `draft_risk`, `draft_change_record`, `draft_exception`,
-  `link_evidence`. Each creates a draft or open record that a person reviews.
-- **No decisions.** There is no tool to approve, close, publish or administer: each record
-  carries an `open_in_workspace` link for the person who decides.
+- **Read tools:** `workspace_info`, `search`, `list_records`, `get_record`, `my_work`,
+  `list_projects`, `project_status`, `list_checklist`, `get_checklist_action` (an action with
+  the brief written for an agent), `waiting_for_a_person` and `document_templates`.
+- **Draft tools:** every one leaves a draft for a person.
+  - `propose_checklist_update` proposes where a checklist action stands, with what was done,
+    what is still missing and evidence. The action does not change: a person accepts or
+    dismisses the proposal in the workspace. With anything missing it is saved as in progress
+    and shown as incomplete.
+  - `save_agent_report` stores a report as a Markdown evidence file marked not reviewed, and
+    `add_evidence_link` records an address (grcHero never opens it). `link_evidence` links
+    evidence to a control.
+  - `propose_diagram` hands over a Mermaid flowchart. It becomes a diagram only when a person
+    opens it in the editor, where it is marked "AI draft, not reviewed".
+  - `draft_finding`, `draft_risk`, `draft_asset`, `draft_control`, `draft_change_record`,
+    `draft_exception` and `draft_document` (from a guided template). grcHero marks each as
+    written by an agent until a person checks it.
+- **No decisions.** There is no tool to accept, approve, review, close, publish, delete or
+  administer: each record carries an `open_in_workspace` link for the person who decides.
+- **No local files.** No tool reads a file from your computer. To add a file as evidence, run
+  `grchero evidence add FILE` yourself. A report that looks like it holds a key or token is
+  refused.
+- **Held to its tools.** grcHero refuses any request from the MCP server that is not one its
+  tools send, and limits how fast an agent may call it.
 - **Records are data.** Results are marked as untrusted text for the app, long text is
-  shortened and a result is at most 60,000 characters. Nothing is sent anywhere but your
-  grcHero workspace.
+  shortened, a result is at most 60,000 characters, and secret-looking fields are left out.
+  Nothing is sent anywhere but your grcHero workspace, and a redirect is never followed.
+- **Protocol.** MCP 2026-07-28 (no handshake) and the earlier versions back to 2024-11-05.
 
 ## Agents
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import re
@@ -190,10 +191,25 @@ def client_headers() -> dict[str, str]:
     return headers
 
 
-def _upload(url: str, path: Path, *, token: str, organization_id: str) -> dict[str, Any]:
-    """POST one file as the raw request body, streamed, with the same error handling."""
-    size = path.stat().st_size
-    with path.open("rb") as stream:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """grcHero and its sign-in server never redirect an API call. Following one would hand
+    the sign-in token to wherever it points, so a redirect is an error, not a destination."""
+
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+
+urllib.request.install_opener(urllib.request.build_opener(_NoRedirect))
+
+
+def _upload(url: str, path: Path | bytes, *, token: str, organization_id: str) -> dict[str, Any]:
+    """POST one file as the raw request body, streamed, with the same error handling.
+
+    Bytes are text this program wrote itself (an agent's report through `grchero mcp`); a path
+    is a file the person chose and confirmed with `grchero evidence add`.
+    """
+    size = len(path) if isinstance(path, bytes) else path.stat().st_size
+    with io.BytesIO(path) if isinstance(path, bytes) else path.open("rb") as stream:
         request = urllib.request.Request(
             url,
             data=stream,

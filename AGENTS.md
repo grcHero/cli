@@ -27,9 +27,17 @@ Area modules (`commands.py`, `assurance.py`, `operations.py`, `admin.py`) import
 `catalog.py`. Never create API tokens from the CLI or print an invitation link or any other
 secret grcHero returns. Review decisions answer the newest submission.
 `grchero mcp` (`grchero_cli/mcp.py`) writes only protocol messages to stdout (everything else
-to stderr), names itself `grchero-mcp/VERSION` with the app's name, never waits for a browser
-confirmation and offers no tool that decides or administers; drafts must create draft or open
-records only. Mark every result as untrusted data and keep the size limits.
+to stderr), names itself `grchero-mcp/VERSION` with the app's name (from the handshake, or from
+each request in MCP 2026-07-28), and never waits for a browser confirmation. No tool decides,
+administers, deletes, reads a local file or takes an address to send data to. Every draft tool
+leaves something a person must accept: a checklist action is only ever proposed
+(`POST .../proposals`), a diagram only proposed (`POST /diagram-proposals`), and records are
+created as drafts or open. Every request a tool sends must be listed in grcHero's
+`backend/app/agent_access/rules.py` (`MCP_REQUESTS`), or grcHero refuses it. Arguments are
+checked against the tool's schema before anything is sent; every result is marked as untrusted
+data with `<` escaped, secret-looking fields are left out and the size limits stay. HTTP
+redirects are never followed (`auth._NoRedirect`), so the sign-in token goes only to the
+configured grcHero address.
 Keep help, rule documentation and existing-report reading available without login.
 Preserve bounded file reads, symlink exclusions, explicit source scope and
 non-overwriting report creation.

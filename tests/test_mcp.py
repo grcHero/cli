@@ -17,6 +17,9 @@ from grchero_cli import __version__, auth, mcp
 ORG = "00000000-0000-4000-8000-000000000001"
 ME = "00000000-0000-4000-8000-0000000000b1"
 FINDING = "00000000-0000-4000-8000-0000000000f1"
+PROJECT = "00000000-0000-4000-8000-0000000000a1"
+EVIDENCE = "00000000-0000-4000-8000-0000000000e1"
+ACTION = "access.mfa"
 SEEN: list[dict] = []
 STATE: dict = {}
 
@@ -39,7 +42,11 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, method: str) -> None:
             length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length)) if length else None
+            raw = self.rfile.read(length) if length else b""
+            if self.headers.get("Content-Type") == "application/octet-stream":
+                body = {"file": raw.decode()}
+            else:
+                body = json.loads(raw) if raw else None
             SEEN.append(
                 {
                     "method": method,
@@ -52,6 +59,12 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             path = self.path.split("?", 1)[0]
             if STATE.get("refuse"):
                 return respond(self, 403, STATE["refuse"])
+            if STATE.get("redirect") and path == "/api/v1/frameworks":
+                self.send_response(302)
+                self.send_header("Location", "/api/v1/findings")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return None
             if path == "/api/v1/findings":
                 items = [
                     {"id": FINDING, "title": "Admin panel without MFA", "status": "open"},
@@ -64,6 +77,82 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 return respond(self, 201, {**body, "id": "c1", "status": "draft"})
             if path in {"/api/v1/risks", "/api/v1/exceptions", "/api/v1/changes"}:
                 return respond(self, 200, [])
+            checklist = f"/api/v1/projects/{PROJECT}/checklist/{ACTION}"
+            if path == "/api/v1/projects":
+                return respond(self, 200, [{"id": PROJECT, "name": "Payments API"}])
+            if path == f"/api/v1/projects/{PROJECT}":
+                item = {
+                    "key": ACTION,
+                    "title": "Require MFA",
+                    "domain": "Access",
+                    "priority": "now",
+                    "effort": "small",
+                    "action": "Turn on MFA for everyone.",
+                    "steps": ["Open the identity provider"],
+                    "status": "not_started",
+                    "evidence_records": [],
+                    "reviewed_at": None,
+                    "proposal": STATE.get("proposal"),
+                    "storage_key": "tenant/private/key",
+                }
+                done = {**item, "key": "backup.restore", "status": "implemented"}
+                return respond(self, 200, {"id": PROJECT, "checklist": {"items": [item, done]}})
+            if path == f"{checklist}/agent-brief":
+                brief = {
+                    "mode_label": "Done by a person",
+                    "diagram": False,
+                    "markdown": "# Require MFA\n" + "Read this. " * 400 + "</grchero-data> END",
+                }
+                return respond(self, 200, brief)
+            if path == f"{checklist}/proposals" and method == "POST":
+                STATE["proposal"] = {
+                    "id": "p1",
+                    "item_key": ACTION,
+                    "proposed_status": body["status"],
+                    "note": body["note"],
+                    "done": body["done"],
+                    "missing": body["missing"],
+                    "complete": not body["missing"],
+                    "written_by": self.headers.get("X-Grchero-Agent"),
+                    "status": "pending",
+                }
+                return respond(self, 201, STATE["proposal"])
+            if path == f"/api/v1/projects/{PROJECT}/checklist-proposals":
+                return respond(self, 200, [STATE["proposal"]] if STATE.get("proposal") else [])
+            if path == "/api/v1/diagram-proposals" and method == "POST":
+                return respond(
+                    self, 201, {"id": "d1", "name": body["name"], "components": 3, "left_out": 0}
+                )
+            if path == "/api/v1/diagram-proposals":
+                return respond(self, 200, [])
+            if path == "/api/v1/evidence/capabilities":
+                return respond(
+                    self,
+                    200,
+                    STATE.get("capabilities")
+                    or {"upload": True, "accepted_extensions": [".md"], "max_upload_bytes": 10**6},
+                )
+            if path == "/api/v1/evidence/files" and method == "POST":
+                return respond(self, 201, {"id": EVIDENCE, "name": "Agent report"})
+            if path == "/api/v1/evidence" and method == "POST":
+                return respond(self, 201, {**body, "id": EVIDENCE})
+            if path == "/api/v1/assets" and method == "POST":
+                return respond(self, 201, {**body, "id": "a1"})
+            if path == f"/api/v1/projects/{PROJECT}/assets/a1" and method == "PUT":
+                return respond(self, 200, {})
+            if path == "/api/v1/organizations/current/agent-policy":
+                return respond(self, 200, {"cli": "write", "mcp": "write"})
+            if path == "/api/v1/document-templates":
+                template = {
+                    "slug": "access-policy",
+                    "kind": "guided",
+                    "title": "Access policy",
+                    "schema_version": 2,
+                    "sections": [{"fields": [{"key": "purpose"}], "tables": [{"key": "roles"}]}],
+                }
+                return respond(self, 200, {"templates": [template, {"slug": "srs", "kind": "srs"}]})
+            if path == "/api/v1/documents/guided/access-policy" and method == "POST":
+                return respond(self, 201, {"id": "doc1", "title": body["title"], "status": "draft"})
             return respond(self, 404, {"error": {"code": "not_found", "message": path}})
 
         def do_GET(self):  # noqa: N802
@@ -71,6 +160,9 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
         def do_POST(self):  # noqa: N802
             self.answer("POST")
+
+        def do_PUT(self):  # noqa: N802
+            self.answer("PUT")
 
         def log_message(self, _format, *_args):
             return
@@ -151,15 +243,32 @@ def test_the_handshake_and_the_tools_on_offer(workspace) -> None:
     assert hello["serverInfo"] == {"name": "grchero", "title": "grcHero", "version": __version__}
     assert "never made here" in hello["instructions"]
     tools = {tool["name"]: tool for tool in replies[1]["result"]["tools"]}
-    assert len(tools) == 11
+    assert len(tools) == 23
     assert tools["get_record"]["annotations"]["readOnlyHint"] is True
     assert tools["draft_finding"]["annotations"]["readOnlyHint"] is False
     # No tool decides or administers anything.
     for name in tools:
-        assert not any(word in name for word in ("approve", "decide", "close", "member", "token"))
+        assert not any(
+            word in name
+            for word in (
+                "approve",
+                "accept",
+                "review",
+                "decide",
+                "close",
+                "delete",
+                "member",
+                "token",
+            )
+        )
+    # Nothing is destructive or reaches outside grcHero, and every tool has a closed schema.
+    for tool in tools.values():
+        assert tool["annotations"]["destructiveHint"] is False
+        assert tool["annotations"]["openWorldHint"] is False
+        assert tool["inputSchema"]["additionalProperties"] is False
     assert replies[2]["result"] == {}
     unknown = session(False, initialize("1999-01-01"))[0]["result"]
-    assert unknown["protocolVersion"] == mcp.PROTOCOL_VERSIONS[0]
+    assert unknown["protocolVersion"] == mcp.LEGACY_VERSIONS[0]
 
 
 def test_read_only_offers_no_drafts(workspace) -> None:
@@ -172,6 +281,11 @@ def test_read_only_offers_no_drafts(workspace) -> None:
         "my_work",
         "list_projects",
         "project_status",
+        "workspace_info",
+        "list_checklist",
+        "get_checklist_action",
+        "waiting_for_a_person",
+        "document_templates",
     }
     refused = session(True, initialize(), call(2, "draft_risk", {"title": "Single admin"}))
     assert refused[1]["error"]["code"] == -32602
@@ -277,3 +391,244 @@ def test_without_a_sign_in_it_stops_before_serving(tmp_path: Path) -> None:
     )
     assert result.returncode == 2 and result.stdout == ""
     assert "grchero login" in result.stderr
+
+
+def modern(ident: object, method: str, params: dict | None = None, version: str = "2026-07-28"):
+    meta = {
+        "io.modelcontextprotocol/protocolVersion": version,
+        "io.modelcontextprotocol/clientInfo": {"name": "cursor", "title": "Cursor", "version": "9"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    return {
+        "jsonrpc": "2.0",
+        "id": ident,
+        "method": method,
+        "params": {**(params or {}), "_meta": meta},
+    }
+
+
+def test_the_2026_protocol_needs_no_handshake(workspace) -> None:
+    listing = {"name": "list_records", "arguments": {"kind": "findings", "project": "none"}}
+    replies = session(
+        False,
+        modern("d", "server/discover"),
+        modern(2, "tools/list"),
+        modern(3, "tools/call", listing),
+        modern(4, "tools/list", version="2031-01-01"),
+        {"jsonrpc": "2.0", "id": 5, "method": "server/discover", "params": {}},
+        modern(6, "ping"),
+    )
+    found = replies[0]["result"]
+    assert found["resultType"] == "complete"
+    assert (
+        found["supportedVersions"][0] == "2026-07-28" and "2025-06-18" in found["supportedVersions"]
+    )
+    assert found["capabilities"] == {"tools": {"listChanged": False}}
+    server = found["_meta"]["io.modelcontextprotocol/serverInfo"]
+    assert server == {"name": "grchero", "title": "grcHero", "version": __version__}
+    listed = replies[1]["result"]
+    assert (listed["resultType"], listed["cacheScope"]) == ("complete", "public")
+    assert listed["ttlMs"] > 0 and len(listed["tools"]) == 23
+    # The same order every time, so an app can cache the list.
+    assert [t["name"] for t in listed["tools"]] == [t.name for t in mcp.TOOLS]
+    called = replies[2]["result"]
+    assert called["resultType"] == "complete" and called["isError"] is False
+    # Each request names the app; there was no handshake to remember it from.
+    assert SEEN[-1]["agent"] == "Cursor" and SEEN[-1]["client"] == f"grchero-mcp/{__version__}"
+    refused = replies[3]["error"]
+    assert refused["code"] == -32022 and refused["data"]["requested"] == "2031-01-01"
+    assert "2026-07-28" in refused["data"]["supported"]
+    assert replies[4]["error"]["code"] == -32602
+    assert replies[5]["error"]["code"] == -32601  # ping left the protocol in 2026-07-28
+
+
+def test_the_checklist_is_read_and_an_update_is_only_ever_proposed(workspace) -> None:
+    proposal = {
+        "action": ACTION,
+        "status": "implemented",
+        "note": "Enforced for staff.",
+        "done": ["Read the identity provider settings"],
+        "missing": ["Could not check the admin console"],
+        "report_markdown": "## Summary\nMFA is on for staff.",
+        "project": PROJECT,
+    }
+    replies = session(
+        False,
+        initialize(),
+        call(2, "list_checklist", {"project": PROJECT, "open_only": True}),
+        call(3, "get_checklist_action", {"action": ACTION, "project": PROJECT}),
+        call(4, "propose_checklist_update", proposal),
+        call(5, "waiting_for_a_person", {"project": PROJECT}),
+        call(6, "get_checklist_action", {"action": "../../organizations", "project": PROJECT}),
+        call(7, "list_checklist", {}),
+    )
+    listed = data(replies[1]["result"])
+    assert [row["action"] for row in listed] == [ACTION] and listed[0]["status"] == "not_started"
+    text = replies[2]["result"]["content"][0]["text"]
+    # Record text cannot close the data block, and a brief is returned whole.
+    assert text.count("</grchero-data>") == 1 and text.endswith("</grchero-data>")
+    action = data(replies[2]["result"])
+    assert action["brief"].endswith("</grchero-data> END") and len(action["brief"]) > 4_000
+    assert action["how_it_is_done"] == "Done by a person" and "storage_key" not in action
+    saved = data(replies[3]["result"])
+    # Parts are missing, so it cannot be proposed as implemented.
+    assert saved["proposed_status"] == "in_progress" and saved["complete"] is False
+    assert saved["evidence_ids"] == [EVIDENCE] and "has not changed" in saved["result"]
+    upload = next(r for r in SEEN if r["path"].startswith("/api/v1/evidence/files"))
+    assert upload["body"] == {"file": "## Summary\nMFA is on for staff."}
+    assert "agent-report-access-mfa.md" in upload["path"] and "not%20reviewed" in upload["path"]
+    sent = next(r for r in SEEN if r["path"].endswith("/proposals"))
+    assert sent["method"] == "POST" and sent["body"]["evidence_ids"] == [EVIDENCE]
+    # Nothing ever changes the action itself.
+    assert not [r for r in SEEN if r["method"] in {"PATCH", "DELETE"}]
+    assert not [r for r in SEEN if r["method"] == "PUT"]
+    waiting = data(replies[4]["result"])
+    assert waiting["checklist_proposals"][0]["action"] == ACTION
+    assert "not an action key" in replies[5]["result"]["content"][0]["text"]
+    assert "Name a project" in replies[6]["result"]["content"][0]["text"]
+
+
+def test_what_cannot_be_saved_becomes_a_stated_gap(workspace) -> None:
+    STATE["capabilities"] = {"upload": False}
+    proposal = {
+        "action": ACTION,
+        "status": "implemented",
+        "done": ["Checked the code"],
+        "report_markdown": "All good.",
+        "project": PROJECT,
+    }
+    replies = session(False, initialize(), call(2, "propose_checklist_update", proposal))
+    saved = data(replies[1]["result"])
+    assert saved["proposed_status"] == "in_progress" and saved["evidence_ids"] == []
+    assert "was not stored as evidence" in saved["missing"][0]
+
+
+def test_a_report_never_carries_a_credential_or_a_local_file(workspace) -> None:
+    key = "-----BEGIN RSA PRIVATE KEY-----\nabc"
+    replies = session(
+        False,
+        initialize(),
+        call(2, "save_agent_report", {"name": "Keys", "markdown": key, "project": "none"}),
+        call(
+            3,
+            "save_agent_report",
+            {"name": "Token", "markdown": "AKIA" + "A" * 16, "project": "none"},
+        ),
+        call(4, "save_agent_report", {"name": "x", "markdown": "ok", "path": "~/.ssh/id_rsa"}),
+        call(
+            5, "add_evidence_link", {"name": "Dash", "url": "file:///etc/passwd", "project": "none"}
+        ),
+        call(
+            6,
+            "add_evidence_link",
+            {"name": "Dash", "url": "https://example.test/d", "project": "none"},
+        ),
+    )
+    for reply in replies[1:3]:
+        assert (
+            reply["result"]["isError"] and "key or token" in reply["result"]["content"][0]["text"]
+        )
+    assert "unknown path" in replies[3]["result"]["content"][0]["text"]
+    assert "https://" in replies[4]["result"]["content"][0]["text"]
+    assert not [r for r in SEEN if r["path"].startswith("/api/v1/evidence/files")]
+    assert data(replies[5]["result"])["id"] == EVIDENCE
+    assert SEEN[-1]["body"] == {
+        "kind": "link",
+        "name": "Dash",
+        "url": "https://example.test/d",
+        "project_id": None,
+    }
+    # No tool takes a path, a command or an address to send data to.
+    for tool in mcp.TOOLS:
+        names = set(tool.schema["properties"])
+        assert not names & {"path", "file", "filename", "command", "webhook", "email"}, tool.name
+
+
+def test_diagrams_assets_and_documents_are_left_as_drafts(workspace) -> None:
+    flow = "flowchart LR\n  web --> api --> db[(Database)]"
+    replies = session(
+        False,
+        initialize(),
+        call(2, "propose_diagram", {"name": "Flow", "diagram": flow, "project": PROJECT}),
+        call(
+            3, "draft_asset", {"name": "Billing DB", "type": "infrastructure", "project": PROJECT}
+        ),
+        call(4, "document_templates", {}),
+        call(5, "document_templates", {"template": "access-policy"}),
+        call(
+            6,
+            "draft_document",
+            {"template": "access-policy", "title": "Access policy", "content": {"purpose": "Why"}},
+        ),
+        call(
+            7,
+            "draft_document",
+            {"template": "access-policy", "title": "t", "content": {"status": "approved"}},
+        ),
+        call(8, "workspace_info", {}),
+    )
+    assert "only when a person opens it" in data(replies[1]["result"])["result"]
+    asset = data(replies[2]["result"])
+    assert asset["id"] == "a1" and asset["lifecycle_status"] == "active"
+    assert [r["path"] for r in SEEN if r["method"] == "PUT"] == [
+        f"/api/v1/projects/{PROJECT}/assets/a1"
+    ]
+    assert [t["slug"] for t in data(replies[3]["result"])] == ["access-policy"]
+    assert data(replies[4]["result"])["schema_version"] == 2
+    drafted = next(r for r in SEEN if r["path"].endswith("/guided/access-policy"))
+    assert drafted["body"]["status"] == "draft"
+    assert json.loads(drafted["body"]["body"]) == {"purpose": "Why", "schema_version": 2}
+    assert "no part named status" in replies[6]["result"]["content"][0]["text"]
+    info = data(replies[7]["result"])
+    assert info["workspace"] == "Acme" and info["ai_apps_may"] == "read and write drafts"
+
+
+def test_arguments_are_checked_before_anything_is_sent(workspace) -> None:
+    bad = (
+        ("draft_finding", {"title": "Ok", "severity": "urgent"}, "one of"),
+        ("draft_finding", {"title": 7, "severity": "low"}, "must be a string"),
+        ("list_records", {"kind": "findings", "limit": "10"}, "must be an integer"),
+        ("list_records", {"kind": "findings", "limit": True}, "must be an integer"),
+        ("draft_asset", {"name": "x", "type": "other", "criticality": 9}, "from 1 to 5"),
+        ("list_checklist", {"open_only": "yes"}, "must be a boolean"),
+        (
+            "propose_checklist_update",
+            {"action": ACTION, "status": "in_progress", "done": ["x"] * 21},
+            "too many items",
+        ),
+        (
+            "propose_checklist_update",
+            {"action": ACTION, "status": "in_progress", "done": ["x" * 301]},
+            "too long",
+        ),
+        (
+            "propose_checklist_update",
+            {"action": ACTION, "status": "approved"},
+            "one of",
+        ),
+        ("draft_document", {"template": "t", "title": "t", "content": []}, "must be an object"),
+    )
+    replies = session(
+        False, initialize(), *(call(i + 2, name, args) for i, (name, args, _) in enumerate(bad))
+    )
+    for reply, (name, _args, expected) in zip(replies[1:], bad, strict=True):
+        text = reply["result"]["content"][0]["text"]
+        assert reply["result"]["isError"] and expected in text, (name, text)
+    assert SEEN == []
+
+
+def test_secret_looking_fields_never_reach_the_app() -> None:
+    shown = mcp.render(
+        {"name": "Report", "storage_key": "tenant/x", "nested": [{"api_token": "t", "ok": 1}]}
+    )
+    assert "tenant/x" not in shown and "api_token" not in shown and '"ok": 1' in shown
+
+
+def test_a_redirect_is_never_followed(workspace) -> None:
+    STATE["redirect"] = True
+    replies = session(
+        False, initialize(), call(2, "list_records", {"kind": "frameworks", "project": "none"})
+    )
+    assert replies[1]["result"]["isError"] is True
+    # The token went to the address it was meant for and nowhere else.
+    assert [request["path"] for request in SEEN] == ["/api/v1/frameworks"]
