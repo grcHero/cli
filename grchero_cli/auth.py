@@ -456,7 +456,8 @@ def login(
         interval = max(2, min(int(device.get("interval", 5)), 15))
     except (KeyError, TypeError, ValueError):
         raise CliError("The identity service returned an invalid login response.") from None
-    print(f"Open {verification_uri} and enter code {user_code}.")
+    # Flushed at once: an agent running this without a terminal must see the code to pass on.
+    print(f"Open {verification_uri} and enter code {user_code}.", flush=True)
     if not webbrowser.open(complete):
         print("The browser did not open automatically. Use the link above.")
     token: dict[str, Any] | None = None

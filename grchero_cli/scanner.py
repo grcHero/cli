@@ -36,6 +36,14 @@ PLACEHOLDER = re.compile(
     re.I,
 )
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx")
+
+
+def is_dockerfile(path: str) -> bool:
+    """`Dockerfile`, `api.Dockerfile` or `Dockerfile.prod`: the names Docker builds use."""
+    name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name == "dockerfile" or name.endswith(".dockerfile") or name.startswith("dockerfile.")
+
+
 LITERAL_CREDENTIAL = re.compile(
     r"\b([A-Za-z_][A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY))\s*(?::[^=]+)?=\s*(['\"])([^'\"]{8,})\2",
     re.I,
@@ -64,7 +72,7 @@ def applicable_rule_ids(
             applicable.add("production-debug")
         if lower.endswith((".yml", ".yaml")) and ".github/workflows/" in f"/{lower}":
             applicable.update(("workflow-write-all", "workflow-pull-request-target"))
-        if lower.rsplit("/", 1)[-1] == "dockerfile":
+        if is_dockerfile(lower):
             applicable.add("docker-user-review")
         if lower.endswith(SOURCE_SUFFIXES):
             applicable.update(("literal-credential", "dynamic-evaluation"))
@@ -171,7 +179,7 @@ def inspect_files(
                     )
                 )
         if (
-            lower_path.rsplit("/", 1)[-1] == "dockerfile"
+            is_dockerfile(lower_path)
             and re.search(r"(?im)^\s*FROM\s+", file.content)
             and not re.search(r"(?im)^\s*USER\s+", file.content)
         ):

@@ -85,6 +85,23 @@ def invoke(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_named_dockerfiles_are_reviewed_too(tmp_path: Path) -> None:
+    infra = tmp_path / "infra" / "docker"
+    infra.mkdir(parents=True)
+    (infra / "frontend.Dockerfile").write_text("FROM node\n", encoding="utf-8")
+    (infra / "python.Dockerfile").write_text("FROM python\nUSER app\n", encoding="utf-8")
+    (tmp_path / "Dockerfile.dev").write_text("FROM alpine\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("FROM here on\n", encoding="utf-8")
+    report = json.loads(invoke(tmp_path, "--format", "json").stdout)
+    assert sorted(report["files"]) == [
+        "Dockerfile.dev",
+        "infra/docker/frontend.Dockerfile",
+        "infra/docker/python.Dockerfile",
+    ]
+    flagged = sorted(f["path"] for f in report["findings"] if f["rule_id"] == "docker-user-review")
+    assert flagged == ["Dockerfile.dev", "infra/docker/frontend.Dockerfile"]
+
+
 def test_default_scope_is_private_and_rules_match_selected_files(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM alpine\n", encoding="utf-8")
     (tmp_path / ".env.production").write_text("API_KEY=private-test-value\n", encoding="utf-8")

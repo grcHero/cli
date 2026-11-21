@@ -84,7 +84,7 @@ is needed. A token can run scans and `whoami`; `submit` needs a signed-in person
 refuses a token. Mask the token and never commit it. `GRCHERO_ACCESS_TOKEN` with
 `GRCHERO_ISSUER_URL` still works for a signed-in user's access token.
 
-The default scope includes Dockerfiles and GitHub Actions workflows. Environment and source files require an explicit `--include`, for example `--include 'src/auth.ts'`. A `.grchero.json` at the project root can hold repeatable `include` and `exclude` arrays. Patterns use Python `fnmatch`, not gitignore semantics; exclusions always win.
+The default scope includes Dockerfiles (`Dockerfile`, `*.Dockerfile`, `Dockerfile.*`) and GitHub Actions workflows. Environment and source files require an explicit `--include`, for example `--include 'src/auth.ts'`. A `.grchero.json` at the project root can hold repeatable `include` and `exclude` arrays. Patterns use Python `fnmatch`, not gitignore semantics; exclusions always win.
 
 Limits: 40 files, 256 KiB per file, 1 MiB total UTF-8 text, and 100 observations. Symlinks and common dependency/generated directories are skipped. The scanner does not execute project code or install project dependencies.
 
@@ -245,7 +245,8 @@ only.
 - **Read tools:** `workspace_info`, `search`, `list_records`, `get_record`, `my_work`,
   `list_projects`, `project_status`, `project_questions` (the questions that shape a project's
   checklist, with every choice), `list_checklist`, `get_checklist_action` (an action with
-  the brief written for an agent), `waiting_for_a_person`, `document_templates` and `questionnaire_questions`.
+  the brief written for an agent), `waiting_for_a_person` (answers, proposals, diagrams and
+  records an agent created that nobody has checked, each with its link), `document_templates` and `questionnaire_questions`.
 - **Draft tools:** every one leaves a draft for a person.
   - `propose_project_answers` answers a project's questions from what the agent sees in the
     code, with a reason for each. The answers wait: a person checks or changes them on "Check
@@ -254,6 +255,8 @@ only.
     what is still missing and evidence. The action does not change: a person accepts or
     dismisses the proposal in the workspace. With anything missing it is saved as in progress
     and shown as incomplete.
+  - `propose_checklist_update` can cite documents from `draft_document` (`document_ids`); each
+    is recorded as a link back to the document.
   - `save_agent_report` stores a report as a Markdown evidence file marked not reviewed, and
     `add_evidence_link` records an address (grcHero never opens it). `link_evidence` links
     evidence to a control.

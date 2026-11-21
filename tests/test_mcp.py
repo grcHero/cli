@@ -19,6 +19,7 @@ ME = "00000000-0000-4000-8000-0000000000b1"
 FINDING = "00000000-0000-4000-8000-0000000000f1"
 PROJECT = "00000000-0000-4000-8000-0000000000a1"
 EVIDENCE = "00000000-0000-4000-8000-0000000000e1"
+DOC = "00000000-0000-4000-8000-0000000000d1"
 ACTION = "access.mfa"
 FORM = "00000000-0000-4000-8000-0000000000c1"
 Q_PERSON = "00000000-0000-4000-8000-0000000000c2"
@@ -82,7 +83,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 return respond(self, 200, [])
             checklist = f"/api/v1/projects/{PROJECT}/checklist/{ACTION}"
             if path == "/api/v1/projects":
-                return respond(self, 200, [{"id": PROJECT, "name": "Payments API"}])
+                health = {"checklist_applicable": 9, "open_findings": 2}
+                return respond(self, 200, [{"id": PROJECT, "name": "Payments API", **health}])
             if path == f"/api/v1/projects/{PROJECT}":
                 item = {
                     "key": ACTION,
@@ -102,7 +104,12 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 detail = {
                     "id": PROJECT,
                     "name": "Payments API",
-                    "checklist": {"items": [item, done]},
+                    "checklist": {
+                        "items": [item, done],
+                        "applicable_count": 2,
+                        "implemented_count": 1,
+                        "reviewed_count": 0,
+                    },
                     "profile": {"answers": {"forms": ["api"]}},
                     "profile_proposal": STATE.get("profile_proposal"),
                 }
@@ -159,6 +166,22 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 )
             if path == "/api/v1/diagram-proposals":
                 return respond(self, 200, [])
+            if path == "/api/v1/agent-drafts":
+                drafts = [
+                    {
+                        "kind": "Finding",
+                        "title": "Admin panel without MFA",
+                        "project_id": PROJECT,
+                        "written_by": "Claude",
+                        "target": f"/workspace/findings?finding={FINDING}",
+                    },
+                    {"kind": "Risk", "title": "Elsewhere", "project_id": "other", "target": "/x"},
+                ]
+                return respond(self, 200, drafts)
+            if path == f"/api/v1/documents/{DOC}":
+                return respond(
+                    self, 200, {"id": DOC, "title": "Access", "document_type": "access_policy"}
+                )
             if path == "/api/v1/evidence/capabilities":
                 return respond(
                     self,
@@ -180,13 +203,14 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 template = {
                     "slug": "access-policy",
                     "kind": "guided",
+                    "document_type": "access_policy",
                     "title": "Access policy",
                     "schema_version": 2,
                     "sections": [{"fields": [{"key": "purpose"}], "tables": [{"key": "roles"}]}],
                 }
                 return respond(self, 200, {"templates": [template, {"slug": "srs", "kind": "srs"}]})
             if path == "/api/v1/documents/guided/access-policy" and method == "POST":
-                return respond(self, 201, {"id": "doc1", "title": body["title"], "status": "draft"})
+                return respond(self, 201, {"id": DOC, "title": body["title"], "status": "draft"})
             if path == "/api/v1/vendors" and method == "POST":
                 return respond(self, 201, {**body, "id": "v1"})
             if path == "/api/v1/incidents" and method == "POST":
@@ -553,6 +577,10 @@ def test_the_checklist_is_read_and_an_update_is_only_ever_proposed(workspace) ->
     assert not [r for r in SEEN if r["method"] == "PUT"]
     waiting = data(replies[4]["result"])
     assert waiting["checklist_proposals"][0]["action"] == ACTION
+    assert "action=access.mfa" in waiting["checklist_proposals"][0]["open_in_workspace"]
+    # Records an agent created and nobody checked, in this project only, each with its link.
+    assert [row["title"] for row in waiting["records_not_checked"]] == ["Admin panel without MFA"]
+    assert f"finding={FINDING}" in waiting["records_not_checked"][0]["open_in_workspace"]
     assert "not an action key" in replies[5]["result"]["content"][0]["text"]
     assert "Name a project" in replies[6]["result"]["content"][0]["text"]
 
@@ -685,7 +713,46 @@ def test_diagrams_assets_and_documents_are_left_as_drafts(workspace) -> None:
     assert json.loads(drafted["body"]["body"]) == {"purpose": "Why", "schema_version": 2}
     assert "no part named status" in replies[6]["result"]["content"][0]["text"]
     info = data(replies[7]["result"])
-    assert info["workspace"] == "Acme" and info["ai_apps_may"] == "read and write drafts"
+    assert info["workspace"] == "Acme" and info["ai_agents_may"] == "read and write drafts"
+
+
+def test_links_open_the_exact_item_and_documents_can_be_cited(workspace) -> None:
+    flow = "flowchart LR\n  web --> api"
+    proposal = {
+        "action": ACTION,
+        "status": "in_progress",
+        "missing": ["A person reviews the policy"],
+        "document_ids": [DOC],
+        "project": PROJECT,
+    }
+    replies = session(
+        False,
+        initialize(),
+        call(2, "propose_diagram", {"name": "Flow", "diagram": flow, "project": PROJECT}),
+        call(
+            3,
+            "draft_document",
+            {"template": "access-policy", "title": "Access", "content": {"purpose": "Why"}},
+        ),
+        call(4, "propose_checklist_update", proposal),
+        call(5, "project_status", {"project": PROJECT}),
+    )
+    assert data(replies[1]["result"])["open_in_workspace"].endswith(
+        f"/workspace/architecture?draft=d1&project={PROJECT}"
+    )
+    assert (
+        f"/workspace/documents/access-policy?document={DOC}"
+        in (data(replies[2]["result"])["open_in_workspace"])
+    )
+    # The document is cited as a link back to it, recorded as evidence on the proposal.
+    link = next(r for r in SEEN if r["path"] == "/api/v1/evidence" and r["method"] == "POST")
+    assert link["body"]["kind"] == "link" and link["body"]["name"] == "Document: Access"
+    assert f"/workspace/documents/access-policy?document={DOC}" in link["body"]["url"]
+    sent = next(r for r in SEEN if r["path"].endswith("/proposals"))
+    assert sent["body"]["evidence_ids"] == [EVIDENCE]
+    status = data(replies[4]["result"])
+    assert (status["checklist_applicable"], status["checklist_implemented"]) == (2, 1)
+    assert status["open_findings"] == 2
 
 
 def test_vendors_incidents_and_questionnaire_answers_are_drafts(workspace) -> None:

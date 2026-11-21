@@ -7,9 +7,17 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from .scanner import is_dockerfile
+
 DEFAULT_INCLUDE = [
     "Dockerfile",
     "**/Dockerfile",
+    "*.Dockerfile",
+    "**/*.Dockerfile",
+    "*.dockerfile",
+    "**/*.dockerfile",
+    "Dockerfile.*",
+    "**/Dockerfile.*",
     ".github/workflows/*.yml",
     ".github/workflows/*.yaml",
 ]
@@ -139,7 +147,7 @@ def collect(root: Path, include: list[str], exclude: list[str]) -> list[LocalFil
                 continue
             lower = relative.lower()
             if not (
-                lower.rsplit("/", 1)[-1] == "dockerfile"
+                is_dockerfile(lower)
                 or lower.endswith((".env", ".env.production", ".env.prod", ".env.local"))
                 or (".github/workflows/" in f"/{lower}" and lower.endswith((".yml", ".yaml")))
                 or lower.endswith((".py", ".js", ".jsx", ".ts", ".tsx"))
