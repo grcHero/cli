@@ -352,6 +352,8 @@ def test_the_handshake_and_the_tools_on_offer(workspace) -> None:
                 "token",
             )
         )
+    # The tool says how to draw boundaries, so a flat set of boxes is not the default.
+    assert "subgraph" in tools["propose_diagram"]["description"]
     # Nothing is destructive or reaches outside grcHero, and every tool has a closed schema.
     for tool in tools.values():
         assert tool["annotations"]["destructiveHint"] is False

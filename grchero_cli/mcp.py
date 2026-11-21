@@ -1316,7 +1316,11 @@ TOOLS = [
         "Propose a diagram",
         "Hand over an architecture or data-flow diagram as a Mermaid flowchart (or grcHero "
         "blueprint JSON). It waits as a draft; a person opens it in the editor. At most 30 "
-        "components are kept.",
+        "components are kept. Draw trust boundaries with `subgraph id[Name] ... end` (for "
+        "example the edge, the application, identity, data and outside providers), nest at "
+        "most three levels, keep people and clients outside them, never wrap a single "
+        "component, and use `[(name)]` for data stores. A flat list of boxes hides what is "
+        "inside which boundary.",
         _schema(
             {
                 "name": _text("Diagram name", minLength=1, maxLength=200),
