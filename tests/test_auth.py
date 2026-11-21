@@ -150,3 +150,25 @@ def test_only_authenticated_grchero_calls_carry_the_client_names(
     auth._request("https://api.example.test/api/v1/organizations", token="t")
     assert "x-grchero-client" not in seen[0]
     assert seen[1]["x-grchero-agent"] == "Claude Code"
+
+
+def test_a_workspace_is_named_by_id_slug_or_its_name_in_any_case(monkeypatch) -> None:
+    from grchero_cli.auth import choose_workspace
+
+    workspaces = [
+        {"id": "o1", "name": "GRCHERO", "slug": "grchero-x1"},
+        {"id": "o2", "name": "NEDALABS LTD", "slug": "nedalabs"},
+    ]
+    assert choose_workspace(workspaces, "o2")["id"] == "o2"
+    assert choose_workspace(workspaces, "nedalabs")["id"] == "o2"
+    assert choose_workspace(workspaces, "GRCHERO")["id"] == "o1"
+    assert choose_workspace(workspaces, "Nedalabs Ltd")["id"] == "o2"
+    with pytest.raises(CliError, match="Yours: GRCHERO, NEDALABS LTD"):
+        choose_workspace(workspaces, "Acme")
+    twins = [*workspaces, {"id": "o3", "name": "grchero", "slug": "grchero-x3"}]
+    with pytest.raises(CliError, match="More than one"):
+        choose_workspace(twins, "grchero")
+    # Without a terminal to answer, the message says how to name one.
+    monkeypatch.setattr("builtins.input", lambda _prompt: (_ for _ in ()).throw(EOFError()))
+    with pytest.raises(CliError, match="--organization NAME"):
+        choose_workspace(workspaces, None)

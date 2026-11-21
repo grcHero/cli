@@ -497,29 +497,7 @@ def login(
     if not workspaces:
         webbrowser.open(f"{api_url}/onboarding")
         raise CliError("Finish workspace setup in the browser, then run `grchero login` again.")
-    selected = None
-    if organization:
-        selected = next(
-            (
-                item
-                for item in workspaces
-                if str(item.get("id")) == organization or item.get("slug") == organization
-            ),
-            None,
-        )
-        if selected is None:
-            raise CliError("The requested workspace was not found for this account.")
-    elif len(workspaces) == 1:
-        selected = workspaces[0]
-    else:
-        print("Choose a workspace:")
-        for index, item in enumerate(workspaces, 1):
-            print(f"  {index}. {item.get('name', item.get('id', 'Workspace'))}")
-        try:
-            choice = int(input("Workspace number: "))
-            selected = workspaces[choice - 1]
-        except (ValueError, IndexError, EOFError):
-            raise CliError("No valid workspace was selected.") from None
+    selected = choose_workspace(workspaces, organization)
     credentials = partial.__class__(
         **{
             **partial.__dict__,
@@ -529,6 +507,41 @@ def login(
     )
     _save(credentials)
     return credentials
+
+
+def choose_workspace(workspaces: list[dict[str, Any]], organization: str | None) -> dict[str, Any]:
+    """The workspace `--organization` names (ID, slug, or a name only one has, in any case),
+    the only one, or the one the person picks. Without a terminal to ask, say how to name it."""
+    names = ", ".join(str(item.get("name", item.get("id"))) for item in workspaces)
+    if organization:
+        exact = [
+            item
+            for item in workspaces
+            if str(item.get("id")) == organization or item.get("slug") == organization
+        ]
+        wanted = organization.strip().casefold()
+        named = [item for item in workspaces if str(item.get("name", "")).casefold() == wanted]
+        matches = exact or named
+        if len(matches) > 1:
+            raise CliError("More than one workspace has that name. Use its slug or ID.")
+        if not matches:
+            raise CliError(f"No workspace of yours is called that. Yours: {names}.")
+        return matches[0]
+    if len(workspaces) == 1:
+        return workspaces[0]
+    print("Choose a workspace:")
+    for index, item in enumerate(workspaces, 1):
+        print(f"  {index}. {item.get('name', item.get('id', 'Workspace'))}")
+    try:
+        choice = int(input("Workspace number: "))
+        if choice < 1:
+            raise IndexError
+        return workspaces[choice - 1]
+    except (ValueError, IndexError, EOFError):
+        raise CliError(
+            f"No workspace was chosen. Name one with `grchero login --organization NAME`. "
+            f"Yours: {names}."
+        ) from None
 
 
 def logout() -> None:
