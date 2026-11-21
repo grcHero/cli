@@ -438,7 +438,7 @@ def test_invitation_links_are_never_printed(server, capsys) -> None:
 def test_agent_setting_keeps_what_is_not_changed(server, capsys) -> None:
     assert main.main(["agents", "set", "--mcp", "read"]) == 0
     assert requests("PUT", "/agent-policy")[-1]["body"] == {"cli": "write", "mcp": "read"}
-    assert "AI apps using MCP: read only" in capsys.readouterr().out
+    assert "AI agents using MCP: read only" in capsys.readouterr().out
     assert main.main(["agents", "set"]) == 2
 
 

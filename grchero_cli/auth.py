@@ -166,7 +166,7 @@ def credential_path() -> Path:
 
 
 _AGENT_LABEL = re.compile(r"[A-Za-z0-9 ._/()+:-]{1,60}")
-# Set by `grchero mcp`: requests then come from the MCP server, driven by the AI app.
+# Set by `grchero mcp`: requests then come from the MCP server, driven by the AI agent.
 _identity: dict[str, str] = {}
 
 

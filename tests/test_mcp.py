@@ -99,7 +99,38 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                     "storage_key": "tenant/private/key",
                 }
                 done = {**item, "key": "backup.restore", "status": "implemented"}
-                return respond(self, 200, {"id": PROJECT, "checklist": {"items": [item, done]}})
+                detail = {
+                    "id": PROJECT,
+                    "name": "Payments API",
+                    "checklist": {"items": [item, done]},
+                    "profile": {"answers": {"forms": ["api"]}},
+                    "profile_proposal": STATE.get("profile_proposal"),
+                }
+                return respond(self, 200, detail)
+            if path == "/api/v1/projects/profile-options":
+                groups = [
+                    {
+                        "key": "forms",
+                        "label": "What does this project include?",
+                        "help_text": "Choose all that fit.",
+                        "multiple": True,
+                        "optional": False,
+                        "placement": "setup",
+                        "exclusive": [],
+                        "options": [{"key": "api", "label": "API", "description": "An API."}],
+                    },
+                    {"key": "stage", "placement": "refine", "optional": True, "options": []},
+                    {"key": "sector", "placement": "retired", "optional": True, "options": []},
+                ]
+                return respond(self, 200, groups)
+            if path == f"/api/v1/projects/{PROJECT}/profile-proposals" and method == "POST":
+                STATE["profile_proposal"] = {
+                    "id": "pp1",
+                    **body,
+                    "written_by": self.headers.get("X-Grchero-Agent"),
+                    "status": "pending",
+                }
+                return respond(self, 201, STATE["profile_proposal"])
             if path == f"{checklist}/agent-brief":
                 brief = {
                     "mode_label": "Done by a person",
@@ -279,7 +310,7 @@ def test_the_handshake_and_the_tools_on_offer(workspace) -> None:
     assert hello["serverInfo"] == {"name": "grchero", "title": "grcHero", "version": __version__}
     assert "never made here" in hello["instructions"]
     tools = {tool["name"]: tool for tool in replies[1]["result"]["tools"]}
-    assert len(tools) == 27
+    assert len(tools) == 29
     assert tools["get_record"]["annotations"]["readOnlyHint"] is True
     assert tools["draft_finding"]["annotations"]["readOnlyHint"] is False
     # No tool decides or administers anything.
@@ -318,6 +349,7 @@ def test_read_only_offers_no_drafts(workspace) -> None:
         "my_work",
         "list_projects",
         "project_status",
+        "project_questions",
         "workspace_info",
         "list_checklist",
         "get_checklist_action",
@@ -465,7 +497,7 @@ def test_the_2026_protocol_needs_no_handshake(workspace) -> None:
     assert server == {"name": "grchero", "title": "grcHero", "version": __version__}
     listed = replies[1]["result"]
     assert (listed["resultType"], listed["cacheScope"]) == ("complete", "public")
-    assert listed["ttlMs"] > 0 and len(listed["tools"]) == 27
+    assert listed["ttlMs"] > 0 and len(listed["tools"]) == 29
     # The same order every time, so an app can cache the list.
     assert [t["name"] for t in listed["tools"]] == [t.name for t in mcp.TOOLS]
     called = replies[2]["result"]
@@ -523,6 +555,42 @@ def test_the_checklist_is_read_and_an_update_is_only_ever_proposed(workspace) ->
     assert waiting["checklist_proposals"][0]["action"] == ACTION
     assert "not an action key" in replies[5]["result"]["content"][0]["text"]
     assert "Name a project" in replies[6]["result"]["content"][0]["text"]
+
+
+def test_the_agent_answers_the_project_questions_and_a_person_uses_them(workspace) -> None:
+    answers = {
+        "answers": {"forms": ["api"], "data_types": ["unsure"]},
+        "reasons": {"forms": "FastAPI routes and no frontend in the repository."},
+        "note": "Could not see how it is deployed.",
+        "project": PROJECT,
+    }
+    replies = session(
+        False,
+        initialize(),
+        call(2, "project_questions", {"project": PROJECT}),
+        call(3, "propose_project_answers", answers),
+        call(4, "waiting_for_a_person", {"project": PROJECT}),
+        call(5, "propose_project_answers", {**answers, "reasons": {"forms": "AKIA" + "A" * 16}}),
+        call(6, "project_questions", {}),
+    )
+    asked = data(replies[1]["result"])
+    # Retired questions are never asked; later ones are marked so.
+    assert [q["question"] for q in asked["questions"]] == ["forms", "stage"]
+    assert asked["questions"][0]["required"] is True and asked["questions"][1]["asked"] == "later"
+    assert asked["questions"][0]["choices"][0]["choice"] == "api"
+    assert asked["current_answers"] == {"forms": ["api"]} and asked["answers_waiting"] is None
+    assert "propose_project_answers" in asked["how_to_answer"]
+    saved = data(replies[2]["result"])
+    assert saved["written_by"] and "does not change" in saved["result"]
+    assert saved["open_in_workspace"].endswith(f"view=checklist&project={PROJECT}")
+    sent = next(r for r in SEEN if r["path"].endswith("/profile-proposals"))
+    assert sent["method"] == "POST" and set(sent["body"]) == {"answers", "reasons", "note"}
+    # The profile itself is never set from here.
+    assert not [r for r in SEEN if r["method"] in {"PUT", "PATCH", "DELETE"}]
+    waiting = data(replies[3]["result"])
+    assert waiting["project_answers"]["id"] == "pp1"
+    assert "looks like it holds a key" in replies[4]["result"]["content"][0]["text"]
+    assert "Name a project" in replies[5]["result"]["content"][0]["text"]
 
 
 def test_what_cannot_be_saved_becomes_a_stated_gap(workspace) -> None:

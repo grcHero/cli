@@ -76,7 +76,7 @@ def _policy_text(policy: dict[str, Any]) -> str:
     meaning = {"off": "off", "read": "read only", "write": "read and draft"}
     return (
         f"Agents using the CLI: {meaning.get(policy.get('cli', ''), policy.get('cli'))}\n"
-        f"AI apps using MCP: {meaning.get(policy.get('mcp', ''), policy.get('mcp'))}"
+        f"AI agents using MCP: {meaning.get(policy.get('mcp', ''), policy.get('mcp'))}"
     )
 
 
@@ -169,7 +169,7 @@ COMMANDS: list[Command] = [
         agents_set,
         (
             Arg("--cli", "Agents using the CLI", choices=LEVELS),
-            Arg("--mcp", "AI apps using MCP", choices=LEVELS),
+            Arg("--mcp", "AI agents using MCP", choices=LEVELS),
         ),
         "grchero agents set --cli read",
         project=False,

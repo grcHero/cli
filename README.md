@@ -225,9 +225,9 @@ the link, exits with code 3 and, with `--json`, prints the confirmation ID. Afte
 confirms, run the same command again with `--confirmation ID`; the CLI waits until that
 confirmation is answered and sends it with the request.
 
-## AI apps (MCP)
+## AI agents (MCP)
 
-`grchero mcp` serves your workspace to an AI app, such as Claude Desktop or an IDE assistant,
+`grchero mcp` serves your workspace to an AI agent, in Claude Desktop, Claude Code or an IDE,
 over the Model Context Protocol on standard input and output. It uses your CLI sign-in.
 
 ```json
@@ -237,12 +237,19 @@ over the Model Context Protocol on standard input and output. It uses your CLI s
 In Claude Code: `claude mcp add grchero -- grchero mcp`. Add `--read-only` to offer read tools
 only.
 
-- **Off until allowed.** An owner or admin turns on "AI apps through MCP" in workspace Settings,
-  AI agents: read only, or read and draft. Every request names the app, for the audit log.
+- **Off until allowed.** An owner or admin sets "AI agents connected through MCP" in workspace
+  Settings, AI agents, to read only or read and draft. Every request names the agent, for the
+  audit log.
+- **Choose the project.** `grchero project use "Payments API"` sets the project the agent works
+  in; each tool also takes `project`.
 - **Read tools:** `workspace_info`, `search`, `list_records`, `get_record`, `my_work`,
-  `list_projects`, `project_status`, `list_checklist`, `get_checklist_action` (an action with
+  `list_projects`, `project_status`, `project_questions` (the questions that shape a project's
+  checklist, with every choice), `list_checklist`, `get_checklist_action` (an action with
   the brief written for an agent), `waiting_for_a_person`, `document_templates` and `questionnaire_questions`.
 - **Draft tools:** every one leaves a draft for a person.
+  - `propose_project_answers` answers a project's questions from what the agent sees in the
+    code, with a reason for each. The answers wait: a person checks or changes them on "Check
+    your answers" and uses them to build the checklist, or dismisses them.
   - `propose_checklist_update` proposes where a checklist action stands, with what was done,
     what is still missing and evidence. The action does not change: a person accepts or
     dismisses the proposal in the workspace. With anything missing it is saved as in progress

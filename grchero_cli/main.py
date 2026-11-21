@@ -193,10 +193,10 @@ def parser() -> argparse.ArgumentParser:
     send.add_argument("--yes", action="store_true", help="Confirm without prompting")
     mcp = commands.add_parser(
         "mcp",
-        help="Serve grcHero to an AI app over MCP (standard input and output)",
-        description="Run a local MCP server for an AI app such as Claude Desktop. It uses this "
-        "sign-in, offers read and draft tools and never decides; the workspace's AI agents "
-        "setting must allow MCP.",
+        help="Serve grcHero to an AI agent over MCP (standard input and output)",
+        description="Run a local MCP server for an AI agent in an app such as Claude Desktop. "
+        "It uses this sign-in, offers read and draft tools and never decides; the workspace's "
+        "AI agents setting must allow MCP.",
     )
     mcp.add_argument("--read-only", action="store_true", help="Offer read tools only")
     describe = commands.add_parser("help", help="List every command; --json for agents")
