@@ -746,9 +746,14 @@ def propose_checklist_update(args: dict[str, Any]) -> Any:
     path = _action_path(ws, action)
     missing = [str(line) for line in args.get("missing") or []]
     evidence = [as_id(str(ident), "evidence_ids") for ident in args.get("evidence_ids") or []]
+    documents: list[str] = []
     for ident in args.get("document_ids") or []:
-        # A document is cited as a link back to it, recorded as evidence like any address.
-        document = ws.get(f"/documents/{as_id(str(ident), 'document_ids')}")
+        # A document is named on the proposal, so the person reads it from the card, and is also
+        # cited as a link back to it, recorded as evidence like any address, so the action keeps
+        # pointing at it after the proposal is accepted.
+        document_id = as_id(str(ident), "document_ids")
+        documents.append(document_id)
+        document = ws.get(f"/documents/{document_id}")
         body = {
             "kind": "link",
             "name": f"Document: {document.get('title', 'untitled')}"[:200],
@@ -772,14 +777,16 @@ def propose_checklist_update(args: dict[str, Any]) -> Any:
         "done": [str(line) for line in args.get("done") or []],
         "missing": missing,
         "evidence_ids": evidence,
+        "document_ids": documents,
     }
     proposal = ws.call("POST", f"{path}/proposals", body)
     return {
         **(_proposal(proposal) or {}),
         "action": action,
         "evidence_ids": evidence,
-        "result": "Saved as a draft. The action has not changed; a person accepts or "
-        "dismisses it in the workspace.",
+        "document_ids": documents,
+        "result": "Saved as a draft. The action has not changed; a person reads the documents "
+        "on the card, then accepts or dismisses it in the workspace.",
         "open_in_workspace": _action_page(ws, action),
     }
 
@@ -1270,7 +1277,7 @@ TOOLS = [
                     "items": {"type": "string"},
                     "maxItems": 3,
                     "description": "Documents from draft_document that the action asked for; "
-                    "each is linked as evidence",
+                    "the person reads each on the proposal, and each is linked as evidence",
                 },
                 "project": PROJECT,
             },

@@ -752,6 +752,8 @@ def test_links_open_the_exact_item_and_documents_can_be_cited(workspace) -> None
     assert f"/workspace/documents/access-policy?document={DOC}" in link["body"]["url"]
     sent = next(r for r in SEEN if r["path"].endswith("/proposals"))
     assert sent["body"]["evidence_ids"] == [EVIDENCE]
+    # The card shows the document itself, to read and to edit, not only a link to it.
+    assert sent["body"]["document_ids"] == [DOC]
     status = data(replies[4]["result"])
     assert (status["checklist_applicable"], status["checklist_implemented"]) == (2, 1)
     assert status["open_findings"] == 2
