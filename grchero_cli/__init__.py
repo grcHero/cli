@@ -4,4 +4,4 @@ Source analysis stays on this machine; requests go only to grcHero and its sign-
 and there is no telemetry.
 """
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
